@@ -285,7 +285,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (parts%debug_particle_with_id>0) call monitor_a_part(parts, 'particles_run, after send_parts() ')
 
   ! For each part, record
-  sample_traj = .true.
+  ! sample_traj = .true.
   if (sample_traj) call record_posn(parts)
   if (write_traj) then
     call move_all_trajectories(parts)
