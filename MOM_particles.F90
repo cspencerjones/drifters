@@ -968,6 +968,7 @@ subroutine particles_end(parts,temp,salt)
 ! Arguments
 type(particles), pointer :: parts
 real,dimension(:,:,:),optional,intent(in) :: temp, salt
+
 ! Local variables
 type(particle), pointer :: this, next
 
@@ -1000,7 +1001,7 @@ type(particle), pointer :: this, next
   deallocate(parts%grd%cos)
   deallocate(parts%grd%sin)
   deallocate(parts%grd%ocean_depth)
-  deallocate(parts%grd%domain)
+!  deallocate(parts%grd%domain)
 !  deallocate(parts%grd)
   call dealloc_buffer(parts%obuffer_n)
   call dealloc_buffer(parts%obuffer_s)
@@ -1011,7 +1012,7 @@ type(particle), pointer :: this, next
   call dealloc_buffer(parts%ibuffer_e)
   call dealloc_buffer(parts%ibuffer_w)
   call dealloc_buffer(parts%ibuffer_io)
-  call dealloc_buffer(parts%ibuffer_io)
+  call dealloc_buffer(parts%obuffer_io)
   call mpp_clock_end(parts%clock_ini)
   deallocate(parts)
 

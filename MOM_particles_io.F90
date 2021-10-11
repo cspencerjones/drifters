@@ -349,8 +349,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
 
   if (.not. associated(grd)) print *,'parts%grd not associated!'
 
-  if (associated(grd%uo)) deallocate(grd%uo)
-  if (associated(grd%vo)) deallocate(grd%vo)
+  if (allocated(grd%uo)) deallocate(grd%uo)
+  if (allocated(grd%vo)) deallocate(grd%vo)
 
   allocate(grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed))
   allocate(grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed))
@@ -599,7 +599,7 @@ logical :: io_is_in_append_mode
       if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_inq_dimid i failed'
       lonid = inq_varid(ncid, 'lon')
       latid = inq_varid(ncid, 'lat')
-!      yearid = inq_varid(ncid, 'year')
+      yearid = inq_varid(ncid, 'year')
       dayid = inq_varid(ncid, 'day')
       drnumid = inq_varid(ncid, 'drifter_num')
       idcntid = inq_varid(ncid, 'id_cnt')
@@ -618,7 +618,7 @@ logical :: io_is_in_append_mode
       ! Variables
       lonid = def_var(ncid, 'lon', NF_DOUBLE, i_dim)
       latid = def_var(ncid, 'lat', NF_DOUBLE, i_dim)
-!      yearid = def_var(ncid, 'year', NF_INT, i_dim)
+      yearid = def_var(ncid, 'year', NF_INT, i_dim)
       dayid = def_var(ncid, 'day', NF_DOUBLE, i_dim)
       drnumid = def_var(ncid, 'drifter_num', NF_INT, i_dim)
       idcntid = def_var(ncid, 'id_cnt', NF_INT, i_dim)
@@ -636,8 +636,8 @@ logical :: io_is_in_append_mode
       call put_att(ncid, lonid, 'units', 'degrees_E')
       call put_att(ncid, latid, 'long_name', 'latitude')
       call put_att(ncid, latid, 'units', 'degrees_N')
-!      call put_att(ncid, yearid, 'long_name', 'year')
-!      call put_att(ncid, yearid, 'units', 'years')
+      call put_att(ncid, yearid, 'long_name', 'year')
+      call put_att(ncid, yearid, 'units', 'years')
       call put_att(ncid, dayid, 'long_name', 'year day')
       call put_att(ncid, dayid, 'units', 'days')
       call put_att(ncid, drnumid, 'long_name', 'identification of the drifter')
@@ -676,7 +676,7 @@ logical :: io_is_in_append_mode
       call put_double(ncid, lonid, i, this%lon)
       call put_double(ncid, latid, i, this%lat)
 !      print *,'this%year: ',this%year
-!      call put_int(ncid, yearid, i, this%year)
+      call put_int(ncid, yearid, i, this%year)
       call put_double(ncid, dayid, i, this%day)
       call put_int(ncid, drnumid, i, this%particle_num)
       call split_id(this%id, cnt, ij)
