@@ -129,10 +129,10 @@ subroutine intercept_of_a_line(Ax, Ay, Bx, By, axes1, x0, y0)
 end subroutine intercept_of_a_line
 
 
-subroutine interp_flds(grd, i, j, xi, yj, uo, vo)
+subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
 ! Arguments
  type(particles_gridded), pointer :: grd
- integer, intent(in) :: i, j
+ integer, intent(in) :: i, j, k
  real, intent(in) :: xi, yj
  real, intent(out) :: uo, vo
  ! Local variables
@@ -143,8 +143,8 @@ subroutine interp_flds(grd, i, j, xi, yj, uo, vo)
  cos_rot=bilin(grd, grd%cos, i, j, xi, yj) ! If true, uses the inverted bilin function
  sin_rot=bilin(grd, grd%sin, i, j, xi, yj)
 
- uo=bilin(grd, grd%uo, i, j, xi, yj)
- vo=bilin(grd, grd%vo, i, j, xi, yj)
+ uo=bilin(grd, grd%uo(:,:,k), i, j, xi, yj)
+ vo=bilin(grd, grd%vo(:,:,k), i, j, xi, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
@@ -258,15 +258,18 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
  !call sanitize_field(grd%calving,1.e20)
 
  ! LUYU: convert CGRID to BGRID.
- ! LUYU: only pass the ocean velocities at the surface layer. 
-  grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed) = 0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1))
-  grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed) = 0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1))
+ ! SPENCER: here is where we need to pass all ocean velocities
+
+     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
+     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
+
+
 
   ! Make sure that gridded values agree with mask  (to get ride of NaN values)
   do i=grd%isd,grd%ied ; do j=grd%jsd,grd%jed
     ! Initializing all gridded values to zero
     if (grd%msk(i,j).lt. 0.5) then
-      grd%uo(i,j) = 0.0 ;  grd%vo(i,j) = 0.0
+      grd%uo(i,j,:) = 0.0 ;  grd%vo(i,j,:) = 0.0
     endif
 !    if (grd%uo(i,j) .ne. grd%uo(i,j)) grd%uo(i,j)=0.
 !    if (grd%vo(i,j) .ne. grd%vo(i,j)) grd%vo(i,j)=0.
@@ -346,7 +349,8 @@ subroutine evolve_particles(parts)
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
 
 	! Interpolate gridded velocity fields to part and generate uvel and vvel
-	call interp_flds(grd,part%ine,part%jne,part%xi,part%yj,part%uvel, part%vvel)
+        part%k=1
+	call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
 
           !Time stepping schemes:
           if (Runge_not_Verlet) then

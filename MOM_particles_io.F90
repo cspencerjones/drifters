@@ -322,7 +322,7 @@ type(time_type), intent(in) :: Time
 real, dimension(:,:,:),intent(in) :: u, v
 
 !Local variables
-integer :: k, siz(4), nparts_in_file, nparts_read
+integer :: n, siz(4), nparts_in_file, nparts_read
 logical :: lres, found_restart, found, replace_drifter_num
 logical :: explain
 logical :: multiPErestart  ! Not needed with new restart read; currently kept for compatibility
@@ -332,7 +332,7 @@ character(len=33) :: filename, filename_base
 type(particles_gridded), pointer :: grd=>NULL()
 
 type(particle) :: localpart
-integer :: stderrunit, i, j, cnt, ij
+integer :: stderrunit, i, j, k, cnt, ij
 
 real, allocatable,dimension(:) :: lon,	&
                                   lat,	&
@@ -352,19 +352,23 @@ integer, allocatable, dimension(:) :: id_cnt, &
   if (allocated(grd%uo)) deallocate(grd%uo)
   if (allocated(grd%vo)) deallocate(grd%vo)
 
-  allocate(grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed))
-  allocate(grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed))
+  allocate(grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
+  allocate(grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
 
   !LUYU: uo and vo are intialized in terms of CGRID; will convert this to BGRID in particles_run
-  do j=grd%jsd,grd%jed
-    do i=grd%isd,grd%ied
-       grd%uo(i,j) = 0.5*(u(i,j,1)+u(i,j+1,1))
+  do k=1,grd%ke
+    do j=grd%jsd,grd%jed
+      do i=grd%isd,grd%ied
+         grd%uo(i,j,k) = 0.5*(u(i,j,k)+u(i,j+1,k))
+       enddo
     enddo
   enddo
 
-  do j=grd%jsd,grd%jed
-    do i=grd%isd,grd%ied
-       grd%vo(i,j) = 0.5*(v(i,j,1)+v(i+1,j,1))
+  do k=1,grd%ke
+    do j=grd%jsd,grd%jed
+      do i=grd%isd,grd%ied
+         grd%vo(i,j,k) = 0.5*(v(i,j,k)+v(i+1,j,k))
+       enddo
     enddo
   enddo
 
@@ -410,10 +414,10 @@ integer, allocatable, dimension(:) :: id_cnt, &
   lat0=minval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
   lat1=maxval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
 
-  do k=1, nparts_in_file
-    localpart%lon=lon(k)
-    localpart%lat=lat(k)
-    localpart%depth=depth(k)
+  do n=1, nparts_in_file
+    localpart%lon=lon(n)
+    localpart%lat=lat(n)
+    localpart%depth=depth(n)
 
     if (use_slow_find) then
       lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
@@ -422,19 +426,19 @@ integer, allocatable, dimension(:) :: id_cnt, &
     endif
 
     if (really_debug) then
-      write(stderrunit,'(a,i8,a,2f9.4,a,i8)') 'particles, read_restart_part: part ',k,' is at ',localpart%lon,localpart%lat,&
+      write(stderrunit,'(a,i8,a,2f9.4,a,i8)') 'particles, read_restart_part: part ',n,' is at ',localpart%lon,localpart%lat,&
            & ' on PE ',mpp_pe()
       write(stderrunit,*) 'particles, read_restart_parts: lres = ',lres
     endif
 
     if (lres) then ! True if the particle resides on the current processors computational grid
-      localpart%start_lon=lon(k)
-      localpart%start_lat=lat(k)
+      localpart%start_lon=lon(n)
+      localpart%start_lat=lat(n)
       if (replace_drifter_num) then
         localpart%id = generate_id(grd, localpart%ine, localpart%jne)
-        localpart%drifter_num = drifter_num(k)
+        localpart%drifter_num = drifter_num(n)
       else
-        localpart%id = id_from_2_ints(id_cnt(k), id_ij(k))
+        localpart%id = id_from_2_ints(id_cnt(n), id_ij(n))
       endif
       localpart%halo_part=0.
       lres=pos_within_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne, localpart%xi, localpart%yj)

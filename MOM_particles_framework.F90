@@ -96,6 +96,7 @@ type :: particles_gridded
   integer :: ieg !< End i-index of global domain
   integer :: jsg !< Start j-index of global domain
   integer :: jeg !< End j-index of global domain
+  integer :: ke         !< The number of layers in the vertical.
   integer :: is_offset=0 !< add to i to recover global i-index
   integer :: js_offset=0 !< add to j to recover global j-index
   integer :: my_pe !< MPI PE index
@@ -117,8 +118,8 @@ type :: particles_gridded
   real, dimension(:,:), allocatable :: cos !< Cosine from rotation matrix to lat-lon coords
   real, dimension(:,:), allocatable :: sin !< Sine from rotation matrix to lat-lon coords
   real, dimension(:,:), allocatable :: ocean_depth !< Depth of ocean (m)
-  real, dimension(:,:), allocatable :: uo !< Ocean zonal flow (m/s)
-  real, dimension(:,:), allocatable :: vo !< Ocean meridional flow (m/s)
+  real, dimension(:,:,:), allocatable :: uo !< Ocean zonal flow (m/s)
+  real, dimension(:,:,:), allocatable :: vo !< Ocean meridional flow (m/s)
   real, dimension(:,:), allocatable :: tmp !< Temporary work space
   real, dimension(:,:), allocatable :: tmpc !< Temporary work space
   real, dimension(:,:), allocatable :: parity_x !< X component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
@@ -155,7 +156,7 @@ type :: particle
   integer :: start_year                         !< origination year
   real :: halo_part  !< equal to zero for particles on the computational domain, and 1 for particles on the halo
   integer(kind=8) :: id,drifter_num             !< particle identifier
-  integer :: ine, jne                           !< nearest index in NE direction (for convenience)
+  integer :: ine, jne, k                           !< nearest index in NE direction (for convenience)
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
                                                 !< by the particle (m/s)
@@ -319,6 +320,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%jsc = Grid%jsc; grd%jec = Grid%jec
   grd%isd = Grid%isd; grd%ied = Grid%ied
   grd%jsd = Grid%jsd; grd%jed = Grid%jed
+  grd%ke = Grid%ke
   grd%is_offset = Grid%idg_offset
   grd%js_offset = Grid%jdg_offset
 
@@ -347,8 +349,8 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   allocate( grd%cos(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%cos(:,:)=1.
   allocate( grd%sin(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%sin(:,:)=0.
   allocate( grd%ocean_depth(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%ocean_depth(:,:)=0.
-  allocate( grd%uo(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%uo(:,:)=0.
-  allocate( grd%vo(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%vo(:,:)=0.
+  allocate( grd%uo(grd%isd:grd%ied, grd%jsd:grd%jed,grd%ke) ); grd%uo(:,:,:)=0.
+  allocate( grd%vo(grd%isd:grd%ied, grd%jsd:grd%jed,grd%ke) ); grd%vo(:,:,:)=0.
   allocate( grd%tmp(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%tmp(:,:)=0.
   allocate( grd%tmpc(grd%isc:grd%iec, grd%jsc:grd%jec) ); grd%tmpc(:,:)=0.
   allocate( grd%parity_x(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%parity_x(:,:)=1.
