@@ -419,6 +419,9 @@ integer, allocatable, dimension(:) :: id_cnt, &
     localpart%lat=lat(n)
     localpart%depth=depth(n)
 
+    !SPENCER Next step is to hardwire the depth to be 1 here
+    localpart%k=1
+
     if (use_slow_find) then
       lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
     else

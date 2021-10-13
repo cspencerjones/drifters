@@ -349,7 +349,7 @@ subroutine evolve_particles(parts)
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
 
 	! Interpolate gridded velocity fields to part and generate uvel and vvel
-        part%k=1
+
 	call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
 
           !Time stepping schemes:
