@@ -29,8 +29,8 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=16 ! size of buffer dimension for comms
-integer :: buffer_width_traj=12  
+integer :: buffer_width=17 ! size of buffer dimension for comms
+integer :: buffer_width_traj=13  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -141,6 +141,7 @@ type :: xyt
   real :: uvel_old, vvel_old !< Previous velocity components (m/s)
   integer :: year, particle_num  !< Current year and particle number
   integer(kind=8) :: id = -1 !< Particle Identifier
+  integer :: k !<Current vertical level i which the particle resides
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
 end type xyt
 
@@ -1292,6 +1293,7 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, INT(part%drifter_num))
   call push_buffer_value(buff%data(:,n), counter, part%ine)
   call push_buffer_value(buff%data(:,n), counter, part%jne)
+  call push_buffer_value(buff%data(:,n), counter, part%k)
 !  call push_buffer_value(buff%data(:,n), counter, part%axn)
 !  call push_buffer_value(buff%data(:,n), counter, part%ayn)
 !  call push_buffer_value(buff%data(:,n), counter, part%bxn)
@@ -1425,6 +1427,7 @@ logical :: quick
   localpart%drifter_num=INT(tmp,kind=8)
   call pull_buffer_value(buff%data(:,n), counter, localpart%ine)
   call pull_buffer_value(buff%data(:,n), counter, localpart%jne)
+  call pull_buffer_value(buff%data(:,n), counter, localpart%k)
 !  call pull_buffer_value(buff%data(:,n), counter, localpart%axn)
 !  call pull_buffer_value(buff%data(:,n), counter, localpart%ayn)
 !  call pull_buffer_value(buff%data(:,n), counter, localpart%bxn)
@@ -1603,6 +1606,7 @@ end subroutine increase_ibuffer
     buff%data(10,n)=traj%lon_old !Alon
     buff%data(11,n)=traj%lat_old !Alon
     buff%data(12,n)=traj%particle_num !Alon
+    buff%data(13,n)=traj%k
 
   end subroutine pack_traj_into_buffer2
 
@@ -1630,7 +1634,8 @@ end subroutine increase_ibuffer
     traj%vvel_old=buff%data(9,n) !Alon
     traj%lon_old=buff%data(10,n) !Alon
     traj%lat_old=buff%data(11,n) !Alon
-    traj%particle_num=buff%data(12,n) 
+    traj%particle_num=buff%data(12,n)
+    traj%k=buff%data(13,n) 
 
     call append_posn(first, traj)
 
@@ -2013,6 +2018,8 @@ integer :: stderrunit
   ! Get the stderr unit number
   stderrunit=stderr()
 
+  write(stderrunit,'(a8,i3)') 'partvalk', (partvals%k)
+
   if (associated(part)) then
     write(stderrunit,*) 'particles, create_particle: part already associated!!!!',mpp_pe()
     call error_mesg('particles, create_particle', 'part already associated. This should not happen!', FATAL)
@@ -2179,6 +2186,7 @@ integer :: grdi, grdj
     do while (associated(this))
       posn%lon=this%lon
       posn%lat=this%lat
+      posn%k=this%k
       posn%year=parts%current_year
       posn%day=parts%current_yearday
       posn%id=this%id
