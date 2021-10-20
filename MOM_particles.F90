@@ -65,13 +65,14 @@ real, parameter :: Rearth=6360000. !< Radius of earth (m)
 contains
 
 ! ##############################################################################
-subroutine particles_init(parts, Grid, Time, dt, u, v)
+subroutine particles_init(parts, Grid, Time, dt, u, v, h)
 
  type(particles), pointer, intent(out) :: parts
  type(ocean_grid_type), target, intent(in) :: Grid !< Grid type from parent model
  type(time_type), intent(in) :: Time !< Time type from parent model
  real, intent(in)            :: dt !< particle timestep in seconds
  real, dimension(:,:,:),intent(in)      :: u, v !< Horizontal velocity fields
+ real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
 
  integer :: io_layout(2)
  integer :: stdlogunit, stderrunit
@@ -84,7 +85,7 @@ subroutine particles_init(parts, Grid, Time, dt, u, v)
  call particles_framework_init(parts, Grid, Time, dt)
  call mpp_clock_begin(parts%clock_ior)
  call particles_io_init(parts,Grid%Domain%io_layout)
- call read_restart_parts(parts,Time, u, v)
+ call read_restart_parts(parts,Time, u, v,h)
 ! call parts_chksum(parts, 'read_restart_particles')
  call mpp_clock_end(parts%clock_ior)
 

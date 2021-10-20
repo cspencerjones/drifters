@@ -68,6 +68,7 @@ public insert_part_into_list, create_particle, delete_particle_from_list, destro
 public print_fld,print_part, print_parts,record_posn, push_posn, append_posn, check_position
 public move_trajectory, move_all_trajectories
 public find_cell, find_cell_by_search, count_parts, is_point_in_cell, pos_within_cell
+public find_layer
 public bilin, yearday, parts_chksum, list_chksum, count_parts_in_list
 public checksum_gridded
 public grd_chksum2,grd_chksum3
@@ -2973,6 +2974,22 @@ integer :: stderrunit
 end function pos_within_cell
 
 ! ##############################################################################
+
+!>Finds what layer the particle is in
+subroutine find_layer(grd, depth,h,k)
+!Arguments
+type(particles_gridded), pointer :: grd !< Container for gridded fields
+real, intent(in) :: depth
+real, dimension(:),intent(in) :: h
+integer, intent(out) :: k
+
+k=1
+
+end subroutine find_layer
+
+
+! ##############################################################################
+
 
 !> Checks that a part's position metrics are consistent
 subroutine check_position(grd, part, label, il, jl)

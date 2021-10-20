@@ -29,6 +29,7 @@ use MOM_grid, only : ocean_grid_type
 use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, buffer
 use MOM_particles_framework, only: pack_traj_into_buffer2,unpack_traj_from_buffer2
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell,append_posn
+use MOM_particles_framework, only: find_layer
 !use particles_framework, only: count_bonds, form_a_bond
 use MOM_particles_framework, only: find_individual_particle
 use MOM_particles_framework, only: push_posn
@@ -315,11 +316,12 @@ end subroutine write_restart
 
 ! ##############################################################################
 
-subroutine read_restart_parts(parts,Time, u, v)
+subroutine read_restart_parts(parts,Time, u, v, h)
 ! Arguments
 type(particles), pointer :: parts
 type(time_type), intent(in) :: Time
 real, dimension(:,:,:),intent(in) :: u, v
+real, dimension(:,:,:),intent(in) :: h
 
 !Local variables
 integer :: n, siz(4), nparts_in_file, nparts_read
@@ -419,9 +421,6 @@ integer, allocatable, dimension(:) :: id_cnt, &
     localpart%lat=lat(n)
     localpart%depth=depth(n)
 
-    !SPENCER Next step is to hardwire the depth to be 1 here
-    localpart%k=2
-
     if (use_slow_find) then
       lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
     else
@@ -445,6 +444,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
       endif
       localpart%halo_part=0.
       lres=pos_within_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne, localpart%xi, localpart%yj)
+      call find_layer(grd, depth(n), h(localpart%ine,localpart%jne,:), localpart%k)
       !call interp_flds(grd,localpart%ine,localpart%jne,localpart%xi,localpart%yj,localpart%uvel, localpart%vvel) !LUYU: we need to move this to evolve_parts.
       call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
     endif
