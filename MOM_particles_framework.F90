@@ -2019,7 +2019,7 @@ integer :: stderrunit
   ! Get the stderr unit number
   stderrunit=stderr()
 
-  write(stderrunit,'(a8,i3)') 'partvalk', (partvals%k)
+  ! write(stderrunit,'(a8,i3)') 'partvalk', (partvals%k)
 
   if (associated(part)) then
     write(stderrunit,*) 'particles, create_particle: part already associated!!!!',mpp_pe()
@@ -2983,7 +2983,25 @@ real, intent(in) :: depth
 real, dimension(:),intent(in) :: h
 integer, intent(out) :: k
 
-k=1
+!Local
+integer :: klev
+real :: rdepth
+integer :: stderrunit
+
+  ! Get the stderr unit number                                                  
+  stderrunit=stderr()
+
+rdepth=0
+do klev=1,grd%ke
+   rdepth = rdepth + h(klev)
+   
+   if (depth.lt.rdepth) then
+      k=klev
+      return
+   endif
+enddo
+
+write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
 
 end subroutine find_layer
 
