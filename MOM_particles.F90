@@ -947,10 +947,11 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
 
 ! ###################################################################################
 
-subroutine particles_save_restart(parts,temp,salt)
+subroutine particles_save_restart(parts, h, temp,salt)
 ! Arguments
 type(particles), pointer :: parts
 real,dimension(:,:,:),optional,intent(in) :: temp, salt
+real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
 
 ! Local variables
 
@@ -969,9 +970,10 @@ end subroutine particles_save_restart
 
 ! ##############################################################################
 
-subroutine particles_end(parts,temp,salt)
+subroutine particles_end(parts,h,temp,salt)
 ! Arguments
 type(particles), pointer :: parts
+real,dimension(:,:,:),intent(in) :: h
 real,dimension(:,:,:),optional,intent(in) :: temp, salt
 
 ! Local variables
@@ -984,9 +986,9 @@ type(particle), pointer :: this, next
   ! by the coupler then the particles would need to take responsibility for
   ! the restarts at the end of the run.
   if (present(temp) .and. present(salt)) then
-    call particles_save_restart(parts,temp,salt)
+    call particles_save_restart(parts,h,temp,salt)
   else
-    call particles_save_restart(parts)
+    call particles_save_restart(parts,h)
   endif
 
   call mpp_clock_begin(parts%clock_ini)
