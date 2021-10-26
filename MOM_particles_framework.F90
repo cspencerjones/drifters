@@ -68,7 +68,7 @@ public insert_part_into_list, create_particle, delete_particle_from_list, destro
 public print_fld,print_part, print_parts,record_posn, push_posn, append_posn, check_position
 public move_trajectory, move_all_trajectories
 public find_cell, find_cell_by_search, count_parts, is_point_in_cell, pos_within_cell
-public find_layer
+public find_layer, find_depth
 public bilin, yearday, parts_chksum, list_chksum, count_parts_in_list
 public checksum_gridded
 public grd_chksum2,grd_chksum3
@@ -3005,6 +3005,30 @@ write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
 
 end subroutine find_layer
 
+! ############################################################################## 
+!>Finds what depth the particle is at  
+subroutine find_depth(grd,k,h,depth)
+!Arguments                                                                      
+type(particles_gridded), pointer :: grd !< Container for gridded fields         
+integer, intent(in) :: k
+real, dimension(:),intent(in) :: h
+real, intent(out) :: depth
+
+!Local                                                                          
+integer :: klev
+real :: rdepth
+
+depth=0
+do klev=1,k
+   if (klev.eq.k)then
+      depth = depth + h(klev)/2
+      return
+   else
+      depth=depth + h(klev)
+   endif
+enddo
+
+end subroutine find_depth
 
 ! ##############################################################################
 

@@ -29,7 +29,7 @@ use MOM_grid, only : ocean_grid_type
 use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, buffer
 use MOM_particles_framework, only: pack_traj_into_buffer2,unpack_traj_from_buffer2
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell,append_posn
-use MOM_particles_framework, only: find_layer
+use MOM_particles_framework, only: find_layer, find_depth
 !use particles_framework, only: count_bonds, form_a_bond
 use MOM_particles_framework, only: find_individual_particle
 use MOM_particles_framework, only: push_posn
@@ -110,9 +110,10 @@ end subroutine particles_io_init
 ! ##############################################################################
 
 !> Write an particle restart file
-subroutine write_restart(parts,temp,salt)
+subroutine write_restart(parts,h,temp,salt)
 ! Arguments
 type(particles), pointer :: parts !< particles container
+real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
 real,dimension(:,:,:),optional,intent(in) :: temp, salt
 ! Local variables
 !type(bond), pointer :: current_bond
@@ -166,6 +167,8 @@ integer :: grdi, grdj
  stderrunit=stderr()
 
 
+ write(stderrunit,*) 'write_restart begins' 
+
   ! For convenience
   grd=>parts%grd
 
@@ -178,6 +181,7 @@ integer :: grdi, grdj
       this=>this%next
     enddo
   enddo ; enddo
+
 
    allocate(lon(nparts))
    allocate(lat(nparts))
@@ -201,13 +205,24 @@ integer :: grdi, grdj
    allocate(id_cnt(nparts))
    allocate(id_ij(nparts))
 
+  write(stderrunit,*) 'write_restart: vars allocated'
 
   call get_instance_filename("drifters.res.nc", filename)
+
+  write(stderrunit,*) 'write_restart: got filename'
+
   call set_domain(parts%grd%domain)
+
+  write(stderrunit,*) 'write_restart: set domain'
+
   call register_restart_axis(parts_restart,filename,'i',nparts)
+
+  write(stderrunit,*) 'write_restart: registered axis'
   call set_meta_global(parts_restart,'file_format_major_version',ival=(/file_format_major_version/))
   call set_meta_global(parts_restart,'file_format_minor_version',ival=(/file_format_minor_version/))
   call set_meta_global(parts_restart,'time_axis',ival=(/0/))
+
+  write(stderrunit,*) 'write_restart: file defined1'
 
   !Now start writing in the io_tile_root_pe if there are any parts in the I/O list
 
@@ -252,6 +267,7 @@ integer :: grdi, grdj
     this=>parts%list(grdi,grdj)%first
     do while(associated(this))
       i = i + 1
+      call find_depth(grd,this%k,h(this%ine,this%jne,:),this%depth)
       lon(i) = this%lon; lat(i) = this%lat; depth(i) = this%depth
       uvel(i) = this%uvel; vvel(i) = this%vvel
       ine(i) = this%ine; jne(i) = this%jne
@@ -269,6 +285,8 @@ integer :: grdi, grdj
       this=>this%next
     enddo
   enddo ; enddo
+
+    write(stderrunit,*) 'write_restart: file defined2'
 
   call save_restart(parts_restart)
   if (really_debug) print *, 'Finish save_restart.' ! LUYU: for debugging
