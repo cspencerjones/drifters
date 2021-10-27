@@ -371,9 +371,11 @@ integer, allocatable, dimension(:) :: id_cnt, &
 
   if (allocated(grd%uo)) deallocate(grd%uo)
   if (allocated(grd%vo)) deallocate(grd%vo)
+  if (allocated(grd%hdepth)) deallocate(grd%hdepth)
 
   allocate(grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
   allocate(grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
+  allocate(grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
 
   !LUYU: uo and vo are intialized in terms of CGRID; will convert this to BGRID in particles_run
   do k=1,grd%ke
@@ -388,6 +390,14 @@ integer, allocatable, dimension(:) :: id_cnt, &
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
          grd%vo(i,j,k) = 0.5*(v(i,j,k)+v(i+1,j,k))
+       enddo
+    enddo
+  enddo
+
+  do k=1,grd%ke
+    do j=grd%jsd,grd%jed
+      do i=grd%isd,grd%ied
+         grd%hdepth(i,j,k) = h(i,j,k)
        enddo
     enddo
   enddo

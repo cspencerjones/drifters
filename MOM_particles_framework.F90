@@ -121,6 +121,7 @@ type :: particles_gridded
   real, dimension(:,:), allocatable :: ocean_depth !< Depth of ocean (m)
   real, dimension(:,:,:), allocatable :: uo !< Ocean zonal flow (m/s)
   real, dimension(:,:,:), allocatable :: vo !< Ocean meridional flow (m/s)
+  real, dimension(:,:,:), allocatable :: hdepth !< Cumulative thickness from ocen surf
   real, dimension(:,:), allocatable :: tmp !< Temporary work space
   real, dimension(:,:), allocatable :: tmpc !< Temporary work space
   real, dimension(:,:), allocatable :: parity_x !< X component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
@@ -161,6 +162,7 @@ type :: particle
   integer :: ine, jne, k                           !< nearest index in NE direction (for convenience)
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
+  real :: hdepth                                !<depth from surface at bottom of layer
                                                 !< by the particle (m/s)
   type(xyt), pointer :: trajectory=>null()
 end type particle
