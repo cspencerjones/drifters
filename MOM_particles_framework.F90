@@ -2975,35 +2975,65 @@ integer :: stderrunit
 
 end function pos_within_cell
 
+
 ! ##############################################################################
 
-!>Finds what layer the particle is in
-subroutine find_layer(grd, depth,h,k)
+subroutine find_layer1D(grd, depth,hdepth,k)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
-real, dimension(:),intent(in) :: h
+real, dimension(:),intent(in) :: hdepth
 integer, intent(out) :: k
 
-!Local
+!Local                                                                          
 integer :: klev
 real :: rdepth
 integer :: stderrunit
 
-  ! Get the stderr unit number                                                  
+
+  ! Get the stderr unit number                                                                                
   stderrunit=stderr()
 
-rdepth=0
 do klev=1,grd%ke
-   rdepth = rdepth + h(klev)
-   
-   if (depth.lt.rdepth) then
+
+   if (depth.lt.hdepth(klev)) then
       k=klev
       return
    endif
 enddo
 
 write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
+
+end subroutine find_layer1D
+
+! ##############################################################################
+
+!>Finds what layer the particle is in
+subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj)
+!Arguments
+type(particles_gridded), pointer :: grd !< Container for gridded fields
+real, intent(in) :: depth
+real, dimension(:,:,:),intent(in) :: hdepth
+integer, intent(out) :: k
+integer, intent(in) :: ine
+integer, intent(in) :: jne
+real, intent(in) :: xi
+real, intent(in) :: yj
+
+
+!Local
+integer :: klev
+real :: rdepth
+integer :: stderrunit
+real, dimension(grd%ke) :: hdepth1D
+  ! Get the stderr unit number                                                 
+
+
+do k=1,grd%ke
+    hdepth1D(k) = bilin(grd, hdepth, ine, jne, xi, yj)
+enddo 
+
+call find_layer1D(grd, depth,hdepth(ine,jne,:),k)
 
 end subroutine find_layer
 
