@@ -659,7 +659,7 @@ logical :: io_is_in_append_mode
       ! Variables
       lonid = def_var(ncid, 'lon', NF_DOUBLE, i_dim)
       latid = def_var(ncid, 'lat', NF_DOUBLE, i_dim)
-      depthid = def_var(ncid,'k', NF_INT, i_dim)
+      depthid = def_var(ncid,'k', NF_DOUBLE, i_dim)
       yearid = def_var(ncid, 'year', NF_INT, i_dim)
       dayid = def_var(ncid, 'day', NF_DOUBLE, i_dim)
       drnumid = def_var(ncid, 'drifter_num', NF_INT, i_dim)

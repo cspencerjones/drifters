@@ -333,6 +333,7 @@ subroutine evolve_particles(parts)
 
   Runge_not_Verlet=parts%Runge_not_Verlet
 
+
   do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts
@@ -357,9 +358,7 @@ subroutine evolve_particles(parts)
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
 
 	! Interpolate gridded velocity fields to part and generate uvel and vvel
-
 	call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
-
           !Time stepping schemes:
           if (Runge_not_Verlet) then
             call Runge_Kutta_stepping(parts,part, axn, ayn, bxn, byn, uveln, vveln,lonn, latn, i, j, xi, yj)

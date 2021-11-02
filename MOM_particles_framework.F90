@@ -2995,13 +2995,23 @@ integer :: stderrunit
   ! Get the stderr unit number                                                                                
   stderrunit=stderr()
 
-do klev=1,grd%ke
 
+
+
+if (depth.lt.hdepth(1)) then
+   k=depth/hdepth(1)
+   return
+endif
+
+
+
+do klev=2,grd%ke
    if (depth.lt.hdepth(klev)) then
-      k=klev
+      k=klev - 1 + (depth-hdepth(klev-1))/(hdepth(klev)-hdepth(klev-1))
       return
    endif
 enddo
+
 
 write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
 end subroutine find_layer1D
@@ -3049,10 +3059,14 @@ real, intent(out) :: depth
 !Local
 integer :: klev
 real :: rdepth
+integer :: kint
+
+
+kint=ceiling(k)
 
 depth=0
-do klev=1,k
-   if (klev.eq.k)then
+do klev=1,kint
+   if (klev.eq.kint)then
       depth = depth + h(klev)/2
       return
    else
