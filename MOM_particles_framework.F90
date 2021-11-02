@@ -3003,7 +3003,6 @@ do klev=1,grd%ke
 enddo
 
 write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
-
 end subroutine find_layer1D
 
 ! ##############################################################################
@@ -3029,24 +3028,24 @@ real, dimension(grd%ke) :: hdepth1D
   ! Get the stderr unit number                                                 
 
 
-do k=1,grd%ke
-    hdepth1D(k) = bilin(grd, hdepth, ine, jne, xi, yj)
+do klev=1,grd%ke
+    hdepth1D(klev) = bilin(grd, hdepth(:,:,klev), ine, jne, xi, yj)
 enddo 
 
-call find_layer1D(grd, depth,hdepth(ine,jne,:),k)
+call find_layer1D(grd, depth,hdepth1D,k)
 
 end subroutine find_layer
 
-! ############################################################################## 
-!>Finds what depth the particle is at  
-subroutine find_depth(grd,k,h,depth)
-!Arguments                                                                      
-type(particles_gridded), pointer :: grd !< Container for gridded fields         
+! ##############################################################################
+subroutine find_depth1D(grd,k,h,depth)
+!Arguments
+type(particles_gridded), pointer :: grd !< Container for gridded fields
 integer, intent(in) :: k
 real, dimension(:),intent(in) :: h
 real, intent(out) :: depth
 
-!Local                                                                          
+
+!Local
 integer :: klev
 real :: rdepth
 
@@ -3059,6 +3058,33 @@ do klev=1,k
       depth=depth + h(klev)
    endif
 enddo
+
+
+end subroutine find_depth1D
+
+! ############################################################################## 
+!>Finds what depth the particle is at  
+subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj)
+!Arguments
+type(particles_gridded), pointer :: grd !< Container for gridded fields 
+integer, intent(in) :: k
+real, dimension(:,:,:),intent(in) :: h
+real, intent(out) :: depth
+integer, intent(in) :: ine
+integer, intent(in) :: jne
+real, intent(in) :: xi
+real, intent(in) :: yj
+
+
+!Local
+real, dimension(grd%ke) :: hdepth1D
+integer :: klev
+
+do klev=1,grd%ke
+    hdepth1D(klev) = bilin(grd, h, ine, jne, xi, yj)
+enddo
+
+call find_depth1D(grd,k,hdepth1D,depth)
 
 end subroutine find_depth
 

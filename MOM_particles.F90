@@ -263,11 +263,11 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
 
      grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
      grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
-     grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
+     grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
 
-  !do k=2,grd%ke
-  !    grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
-  !enddo
+  do k=2,grd%ke
+      grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
+  enddo
 
 
   ! Make sure that gridded values agree with mask  (to get ride of NaN values)

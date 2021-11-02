@@ -267,7 +267,7 @@ integer :: grdi, grdj
     this=>parts%list(grdi,grdj)%first
     do while(associated(this))
       i = i + 1
-      call find_depth(grd,this%k,h(this%ine,this%jne,:),this%depth)
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj)
       lon(i) = this%lon; lat(i) = this%lat; depth(i) = this%depth
       uvel(i) = this%uvel; vvel(i) = this%vvel
       ine(i) = this%ine; jne(i) = this%jne
@@ -397,7 +397,11 @@ integer, allocatable, dimension(:) :: id_cnt, &
   do k=1,grd%ke
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
-         grd%hdepth(i,j,k) = h(i,j,k)
+         if (k.eq.1)then
+             grd%hdepth(i,j,k) = h(i,j,k)
+         else
+             grd%hdepth(i,j,k) = h(i,j,k)+grd%hdepth(i,j,k-1)
+         endif
        enddo
     enddo
   enddo
