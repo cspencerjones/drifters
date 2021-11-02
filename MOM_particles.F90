@@ -133,19 +133,22 @@ end subroutine intercept_of_a_line
 subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
 ! Arguments
  type(particles_gridded), pointer :: grd
- integer, intent(in) :: i, j, k
+ integer, intent(in) :: i, j
+ real, intent(in) :: k
  real, intent(in) :: xi, yj
  real, intent(out) :: uo, vo
  ! Local variables
  real :: cos_rot, sin_rot
  real :: hxm, hxp
+ integer :: kint
 
+ kint = ceiling(k)
 
  cos_rot=bilin(grd, grd%cos, i, j, xi, yj) ! If true, uses the inverted bilin function
  sin_rot=bilin(grd, grd%sin, i, j, xi, yj)
 
- uo=bilin(grd, grd%uo(:,:,k), i, j, xi, yj)
- vo=bilin(grd, grd%vo(:,:,k), i, j, xi, yj)
+ uo=bilin(grd, grd%uo(:,:,kint), i, j, xi, yj)
+ vo=bilin(grd, grd%vo(:,:,kint), i, j, xi, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)

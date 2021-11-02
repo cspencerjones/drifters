@@ -143,7 +143,7 @@ type :: xyt
   real :: uvel_old, vvel_old !< Previous velocity components (m/s)
   integer :: year, particle_num  !< Current year and particle number
   integer(kind=8) :: id = -1 !< Particle Identifier
-  integer :: k !<Current vertical level i which the particle resides
+  real :: k !<Current vertical level i which the particle resides
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
 end type xyt
 
@@ -159,7 +159,8 @@ type :: particle
   integer :: start_year                         !< origination year
   real :: halo_part  !< equal to zero for particles on the computational domain, and 1 for particles on the halo
   integer(kind=8) :: id,drifter_num             !< particle identifier
-  integer :: ine, jne, k                           !< nearest index in NE direction (for convenience)
+  integer :: ine, jne                           !< nearest index in NE direction (for convenience)
+  real :: k                 !<vertical level of particle
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
   real :: hdepth                                !<depth from surface at bottom of layer
@@ -2983,7 +2984,7 @@ subroutine find_layer1D(grd, depth,hdepth,k)
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
 real, dimension(:),intent(in) :: hdepth
-integer, intent(out) :: k
+real, intent(out) :: k
 
 !Local                                                                          
 integer :: klev
@@ -3013,7 +3014,7 @@ subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj)
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
 real, dimension(:,:,:),intent(in) :: hdepth
-integer, intent(out) :: k
+real, intent(out) :: k
 integer, intent(in) :: ine
 integer, intent(in) :: jne
 real, intent(in) :: xi
@@ -3040,7 +3041,7 @@ end subroutine find_layer
 subroutine find_depth1D(grd,k,h,depth)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
-integer, intent(in) :: k
+real, intent(in) :: k
 real, dimension(:),intent(in) :: h
 real, intent(out) :: depth
 
@@ -3067,7 +3068,7 @@ end subroutine find_depth1D
 subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields 
-integer, intent(in) :: k
+real, intent(in) :: k
 real, dimension(:,:,:),intent(in) :: h
 real, intent(out) :: depth
 integer, intent(in) :: ine
@@ -3081,7 +3082,7 @@ real, dimension(grd%ke) :: hdepth1D
 integer :: klev
 
 do klev=1,grd%ke
-    hdepth1D(klev) = bilin(grd, h, ine, jne, xi, yj)
+    hdepth1D(klev) = bilin(grd, h(:,:,klev), ine, jne, xi, yj)
 enddo
 
 call find_depth1D(grd,k,hdepth1D,depth)

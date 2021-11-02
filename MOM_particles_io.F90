@@ -719,7 +719,7 @@ logical :: io_is_in_append_mode
       i=i+1
       call put_double(ncid, lonid, i, this%lon)
       call put_double(ncid, latid, i, this%lat)
-      call put_int(ncid, depthid, i, this%k)
+      call put_double(ncid, depthid, i, this%k)
 !      print *,'this%year: ',this%year
       call put_int(ncid, yearid, i, this%year)
       call put_double(ncid, dayid, i, this%day)
