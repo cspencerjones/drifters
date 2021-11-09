@@ -523,7 +523,7 @@ logical, intent(in) :: save_short_traj !< If true, record less data
 ! Local variables
 integer :: iret, ncid, i_dim, i
 integer :: lonid, latid, yearid, dayid, uvelid, vvelid, idcntid, idijid, drnumid
-integer :: depthid
+integer :: kid, depthid
 integer :: uoid, void, uiid, viid, uaid, vaid, sshxid, sshyid, sstid, sssid
 integer :: cnid, hiid
 integer :: mid, did, wid, lid, mbid, hdid
@@ -639,7 +639,8 @@ logical :: io_is_in_append_mode
       if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_inq_dimid i failed'
       lonid = inq_varid(ncid, 'lon')
       latid = inq_varid(ncid, 'lat')
-      depthid = inq_varid(ncid, 'k')
+      kid = inq_varid(ncid, 'k')
+      depthid = inq_varid(ncid, 'depth')
       yearid = inq_varid(ncid, 'year')
       dayid = inq_varid(ncid, 'day')
       drnumid = inq_varid(ncid, 'drifter_num')
@@ -659,7 +660,8 @@ logical :: io_is_in_append_mode
       ! Variables
       lonid = def_var(ncid, 'lon', NF_DOUBLE, i_dim)
       latid = def_var(ncid, 'lat', NF_DOUBLE, i_dim)
-      depthid = def_var(ncid,'k', NF_DOUBLE, i_dim)
+      kid = def_var(ncid,'k', NF_DOUBLE, i_dim)
+      depthid = def_var(ncid,'depth', NF_DOUBLE, i_dim)
       yearid = def_var(ncid, 'year', NF_INT, i_dim)
       dayid = def_var(ncid, 'day', NF_DOUBLE, i_dim)
       drnumid = def_var(ncid, 'drifter_num', NF_INT, i_dim)
@@ -678,8 +680,10 @@ logical :: io_is_in_append_mode
       call put_att(ncid, lonid, 'units', 'degrees_E')
       call put_att(ncid, latid, 'long_name', 'latitude')
       call put_att(ncid, latid, 'units', 'degrees_N')
-      call put_att(ncid, depthid, 'long_name', 'k (will be updated to depth)')
-      call put_att(ncid, depthid, 'units', 'layer number')
+      call put_att(ncid, kid, 'long_name', 'k')
+      call put_att(ncid, kid, 'units', 'layer number')
+      call put_att(ncid, depthid, 'long_name', 'depth')
+      call put_att(ncid, depthid, 'units', 'm')
       call put_att(ncid, yearid, 'long_name', 'year')
       call put_att(ncid, yearid, 'units', 'years')
       call put_att(ncid, dayid, 'long_name', 'year day')
@@ -719,7 +723,8 @@ logical :: io_is_in_append_mode
       i=i+1
       call put_double(ncid, lonid, i, this%lon)
       call put_double(ncid, latid, i, this%lat)
-      call put_double(ncid, depthid, i, this%k)
+      call put_double(ncid, kid, i, this%k)
+      call put_double(ncid, depthid, i, this%depth)
 !      print *,'this%year: ',this%year
       call put_int(ncid, yearid, i, this%year)
       call put_double(ncid, dayid, i, this%day)

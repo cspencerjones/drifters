@@ -297,7 +297,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
 
   ! For each part, record
   ! sample_traj = .true.
-  if (sample_traj) call record_posn(parts)
+  if (sample_traj) call record_posn(parts,grd%hdepth)
   if (write_traj) then
     call move_all_trajectories(parts)
     call write_trajectory(parts%trajectories, parts%save_short_traj)

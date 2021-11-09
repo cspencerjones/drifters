@@ -144,6 +144,7 @@ type :: xyt
   integer :: year, particle_num  !< Current year and particle number
   integer(kind=8) :: id = -1 !< Particle Identifier
   real :: k !<Current vertical level i which the particle resides
+  real :: depth !<Current depth of the particle
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
 end type xyt
 
@@ -2177,20 +2178,26 @@ end function count_parts_in_list
 
 ! ##############################################################################
 !> Add a record to the trajectory of each part
-subroutine record_posn(parts)
+subroutine record_posn(parts,h)
 ! Arguments
 type(particles), pointer :: parts !< Container for all types and memory
+real,dimension(:,:,:), intent(in) :: h
 ! Local variables
 type(xyt) :: posn
 type(particle), pointer :: this
 integer :: grdi, grdj
+type(particles_gridded), pointer :: grd
 
+
+  grd=>parts%grd
   do grdj = parts%grd%jsc,parts%grd%jec ; do grdi = parts%grd%isc,parts%grd%iec
     this=>parts%list(grdi,grdj)%first
     do while (associated(this))
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj)
+      posn%depth=this%depth
       posn%year=parts%current_year
       posn%day=parts%current_yearday
       posn%id=this%id
