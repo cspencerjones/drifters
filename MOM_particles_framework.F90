@@ -30,7 +30,7 @@ use diag_manager_mod, only: diag_axis_init
 implicit none ; private
 
 integer :: buffer_width=17 ! size of buffer dimension for comms
-integer :: buffer_width_traj=13  
+integer :: buffer_width_traj=14  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -1612,6 +1612,7 @@ end subroutine increase_ibuffer
     buff%data(11,n)=traj%lat_old !Alon
     buff%data(12,n)=traj%particle_num !Alon
     buff%data(13,n)=traj%k
+    buff%data(14,n)=traj%depth
 
   end subroutine pack_traj_into_buffer2
 
@@ -1641,6 +1642,7 @@ end subroutine increase_ibuffer
     traj%lat_old=buff%data(11,n) !Alon
     traj%particle_num=buff%data(12,n)
     traj%k=buff%data(13,n) 
+    traj%depth=buff%data(14,n)
 
     call append_posn(first, traj)
 
@@ -3067,20 +3069,20 @@ real, intent(out) :: depth
 integer :: klev
 real :: rdepth
 integer :: kint
+integer :: stderrunit
 
 
-kint=ceiling(k)
+  ! Get the stderr unit number
 
-depth=0
-do klev=1,kint
-   if (klev.eq.kint)then
-      depth = depth + h(klev)/2
-      return
-   else
-      depth=depth + h(klev)
-   endif
-enddo
+  stderrunit=stderr()
 
+kint=floor(k)
+
+if (kint.eq.0)then
+   depth= h(1)*k
+else
+   depth = h(kint)+(h(kint+1)-h(kint))*(k-kint)
+endif
 
 end subroutine find_depth1D
 
