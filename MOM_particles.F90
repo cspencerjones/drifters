@@ -952,7 +952,7 @@ real,dimension(:,:),optional,intent(in) :: temp, salt
   if (.not.associated(parts)) return
 
   call mpp_clock_begin(parts%clock_iow)
-  call parts_chksum(parts, 'write_restart parts')
+  ! call parts_chksum(parts, 'write_restart parts')
   if (present(temp) .and. present(salt)) then
     call write_restart(parts,temp,salt)
   else
