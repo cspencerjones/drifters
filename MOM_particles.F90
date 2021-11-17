@@ -38,6 +38,8 @@ use MOM_particles_framework, only: offset_part_dates
 use MOM_particles_framework, only: count_parts_in_list,list_chksum
 use MOM_particles_framework, only: monitor_a_part,move_part_between_cells, update_halo_particles
 use MOM_particles_framework, only: is_point_within_xi_yj_bounds
+use MOM_particles_framework, only: find_layer
+
 
 use MOM_particles_io,        only: particles_io_init,write_restart,write_trajectory
 use MOM_particles_io,        only: read_restart_parts, particles_io_init
@@ -285,6 +287,9 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (debug) call parts_chksum(parts, 'run parts (top)')
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
+  !Move to k-space if not already
+  call particles_to_k_space(parts)
+
   call evolve_particles(parts)
   if (parts%debug_particle_with_id>0) call monitor_a_part(parts, 'particles_run, after evolve()     ')
   call move_part_between_cells(parts)  !Markpoint6
@@ -307,6 +312,28 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (debug) call parts_chksum(parts, 'run parts (bot)')
 end subroutine particles_run
 
+! ##############################################################################
+!> Checks whether all particles are in k-space and if not, moves them to k-space
+subroutine particles_to_k_space(parts)
+   ! Arguments
+   type(particles), pointer :: parts !< Container for all types and memory
+   !Local variables
+   type(particles_gridded), pointer :: grd
+   type(particle), pointer :: part
+   integer :: grdi, grdj
+
+   ! For convenience
+   grd=>parts%grd
+
+   do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
+    part=>parts%list(grdi,grdj)%first
+    do while (associated(part)) ! loop over all parts 
+    call find_layer(grd, part%depth, grd%hdepth, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
+    part=>part%next
+    enddo
+   enddo ; enddo
+
+end subroutine particles_to_k_space
 
 ! ##############################################################################
 !> Evolves particles forward by updating velocity and position with a time-stepping scheme

@@ -476,7 +476,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
       endif
       localpart%halo_part=0.
       lres=pos_within_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne, localpart%xi, localpart%yj)
-      call find_layer(grd, depth(n), grd%hdepth, localpart%k,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
+      localpart%k_space=.false.
+      !call find_layer(grd, depth(n), grd%hdepth, localpart%k,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
       !call interp_flds(grd,localpart%ine,localpart%jne,localpart%xi,localpart%yj,localpart%uvel, localpart%vvel) !LUYU: we need to move this to evolve_parts.
       call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
     endif

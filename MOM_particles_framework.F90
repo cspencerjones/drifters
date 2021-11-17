@@ -145,6 +145,7 @@ type :: xyt
   integer(kind=8) :: id = -1 !< Particle Identifier
   real :: k !<Current vertical level i which the particle resides
   real :: depth !<Current depth of the particle
+  logical :: k_space      !<Logical indicating whether particle is in k (vs z)
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
 end type xyt
 
@@ -162,6 +163,7 @@ type :: particle
   integer(kind=8) :: id,drifter_num             !< particle identifier
   integer :: ine, jne                           !< nearest index in NE direction (for convenience)
   real :: k                 !<vertical level of particle
+  logical :: k_space        !<flag for whether depth is stored in kspace (vs z)
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
   real :: hdepth                                !<depth from surface at bottom of layer
@@ -3028,7 +3030,7 @@ end subroutine find_layer1D
 ! ##############################################################################
 
 !>Finds what layer the particle is in
-subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj)
+subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj,k_space)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
@@ -3038,6 +3040,7 @@ integer, intent(in) :: ine
 integer, intent(in) :: jne
 real, intent(in) :: xi
 real, intent(in) :: yj
+logical, intent(inout) :: k_space
 
 
 !Local
@@ -3047,12 +3050,18 @@ integer :: stderrunit
 real, dimension(grd%ke) :: hdepth1D
   ! Get the stderr unit number                                                 
 
+if (k_space)then
+   return
+endif
+
 
 do klev=1,grd%ke
     hdepth1D(klev) = bilin(grd, hdepth(:,:,klev), ine, jne, xi, yj)
 enddo 
 
 call find_layer1D(grd, depth,hdepth1D,k)
+
+k_space=.true.
 
 end subroutine find_layer
 
