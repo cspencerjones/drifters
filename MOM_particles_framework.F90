@@ -2200,7 +2200,7 @@ type(particles_gridded), pointer :: grd
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
-      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj)
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
       posn%depth=this%depth
       posn%year=parts%current_year
       posn%day=parts%current_yearday
@@ -3097,7 +3097,7 @@ end subroutine find_depth1D
 
 ! ############################################################################## 
 !>Finds what depth the particle is at  
-subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj)
+subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj,k_space)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields 
 real, intent(in) :: k
@@ -3107,15 +3107,22 @@ integer, intent(in) :: ine
 integer, intent(in) :: jne
 real, intent(in) :: xi
 real, intent(in) :: yj
-
+logical, intent(inout) :: k_space
 
 !Local
 real, dimension(grd%ke) :: hdepth1D
 integer :: klev
 
+if (.not.k_space)then
+   return
+endif
+
+
 do klev=1,grd%ke
     hdepth1D(klev) = bilin(grd, h(:,:,klev), ine, jne, xi, yj)
 enddo
+
+k_space=.false.
 
 call find_depth1D(grd,k,hdepth1D,depth)
 
