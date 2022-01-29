@@ -145,6 +145,7 @@ type :: xyt
   integer(kind=8) :: id = -1 !< Particle Identifier
   real :: k !<Current vertical level i which the particle resides
   real :: depth !<Current depth of the particle
+  logical :: k_space      !<Logical indicating whether particle is in k (vs z)
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
 end type xyt
 
@@ -162,6 +163,7 @@ type :: particle
   integer(kind=8) :: id,drifter_num             !< particle identifier
   integer :: ine, jne                           !< nearest index in NE direction (for convenience)
   real :: k                 !<vertical level of particle
+  logical :: k_space        !<flag for whether depth is stored in kspace (vs z)
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
   real :: hdepth                                !<depth from surface at bottom of layer
@@ -2102,6 +2104,9 @@ integer, optional, intent(in) :: jl !< j-index of cell part should be in
     label, 'pe=(', mpp_pe(), ') #=', part%id, &
     ' u,v=', part%uvel, part%vvel, &
     ' uvel_old,vvel_old=', part%uvel_old, part%vvel_old
+  write(iochan,'("particles, print_part: ",2a,i5,a,i12,(a,2f14.8))') &
+    label, 'pe=(', mpp_pe(), ') #=', part%id, &
+    ' depth,k=', part%depth, part%k
 !  write(iochan,'("particles, print_part: ",2a,i5,a,i12,2(a,2f14.8))') &
 !    label, 'pe=(', mpp_pe(), ') #=', part%id, &
 !    ' axn,ayn=', part%axn, part%ayn, &
@@ -2198,7 +2203,7 @@ type(particles_gridded), pointer :: grd
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
-      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj)
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
       posn%depth=this%depth
       posn%year=parts%current_year
       posn%day=parts%current_yearday
@@ -3028,7 +3033,7 @@ end subroutine find_layer1D
 ! ##############################################################################
 
 !>Finds what layer the particle is in
-subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj)
+subroutine find_layer(grd, depth,hdepth,k,ine,jne,xi,yj,k_space)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
@@ -3038,6 +3043,7 @@ integer, intent(in) :: ine
 integer, intent(in) :: jne
 real, intent(in) :: xi
 real, intent(in) :: yj
+logical, intent(inout) :: k_space
 
 
 !Local
@@ -3045,14 +3051,26 @@ integer :: klev
 real :: rdepth
 integer :: stderrunit
 real, dimension(grd%ke) :: hdepth1D
+real, dimension(grd%ke) :: hdepth1Dcum
   ! Get the stderr unit number                                                 
+
+if (k_space)then
+   return
+endif
 
 
 do klev=1,grd%ke
     hdepth1D(klev) = bilin(grd, hdepth(:,:,klev), ine, jne, xi, yj)
+    if (klev.eq.1)then
+        hdepth1Dcum(klev) =hdepth1D(klev)
+    else
+        hdepth1Dcum(klev)=hdepth1Dcum(klev-1)+hdepth1D(klev)
+    endif 
 enddo 
 
-call find_layer1D(grd, depth,hdepth1D,k)
+call find_layer1D(grd, depth,hdepth1Dcum,k)
+
+k_space=.true.
 
 end subroutine find_layer
 
@@ -3075,20 +3093,31 @@ integer :: stderrunit
   ! Get the stderr unit number
 
   stderrunit=stderr()
-
+  
 kint=floor(k)
 
-if (kint.eq.0)then
-   depth= h(1)*k
-else
-   depth = h(kint)+(h(kint+1)-h(kint))*(k-kint)
-endif
+!if (kint.eq.0)then
+!   depth= h(1)*k
+!else
+!   depth = h(kint)+(h(kint+1)-h(kint))*(k-kint)
+!endif
+depth=0
+do klev=0,kint
+   if (klev.eq.kint)then
+     depth = depth+h(klev+1)*(k-kint)
+   else
+     depth=depth+h(klev+1)
+   endif
+enddo
+
+write(stderrunit,'(a,f9.4)') &
+                     'find_depth1D',depth
 
 end subroutine find_depth1D
 
 ! ############################################################################## 
 !>Finds what depth the particle is at  
-subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj)
+subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj,k_space)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields 
 real, intent(in) :: k
@@ -3098,15 +3127,22 @@ integer, intent(in) :: ine
 integer, intent(in) :: jne
 real, intent(in) :: xi
 real, intent(in) :: yj
-
+logical, intent(inout) :: k_space
 
 !Local
 real, dimension(grd%ke) :: hdepth1D
 integer :: klev
 
+if (.not.k_space)then
+   return
+endif
+
+
 do klev=1,grd%ke
     hdepth1D(klev) = bilin(grd, h(:,:,klev), ine, jne, xi, yj)
 enddo
+
+k_space=.false.
 
 call find_depth1D(grd,k,hdepth1D,depth)
 
@@ -3138,10 +3174,10 @@ integer :: stderrunit
     call print_part(stderrunit, part, 'check_position', il, jl)
     call error_mesg('particles, check_position, '//trim(label),'part has inconsistent xi,yj!',FATAL)
   endif
-  if (grd%msk(part%ine, part%jne)==0.) then
-    call print_part(stderrunit, part, 'check_position, '//trim(label), il, jl)
-    call error_mesg('particles, check_position, '//trim(label),'part is in a land cell!',FATAL)
-  endif
+  !if (grd%msk(part%ine, part%jne)==0.) then
+  !  call print_part(stderrunit, part, 'check_position, '//trim(label), il, jl)
+  !  call error_mesg('particles, check_position, '//trim(label),'part is in a land cell!',FATAL)
+  !endif
 
 end subroutine check_position
 

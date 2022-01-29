@@ -38,6 +38,8 @@ use MOM_particles_framework, only: offset_part_dates
 use MOM_particles_framework, only: count_parts_in_list,list_chksum
 use MOM_particles_framework, only: monitor_a_part,move_part_between_cells, update_halo_particles
 use MOM_particles_framework, only: is_point_within_xi_yj_bounds
+use MOM_particles_framework, only: find_layer, find_depth
+
 
 use MOM_particles_io,        only: particles_io_init,write_restart,write_trajectory
 use MOM_particles_io,        only: read_restart_parts, particles_io_init
@@ -49,7 +51,7 @@ implicit none ; private
 public particles_init !, particles_end, particles_run, particles_stock_pe, particles
 public particles_end, particles_run, particles
 public particles_save_restart
-
+public particles_to_z_space, particles_to_k_space
 
 real, parameter :: pi_180=pi/180.  !< Converts degrees to radians
 real, parameter :: r180_pi=180./pi !< Converts radians to degrees
@@ -285,6 +287,9 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (debug) call parts_chksum(parts, 'run parts (top)')
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
+  !Move to k-space if not already
+  call particles_to_k_space(parts,ho)
+
   call evolve_particles(parts)
   if (parts%debug_particle_with_id>0) call monitor_a_part(parts, 'particles_run, after evolve()     ')
   call move_part_between_cells(parts)  !Markpoint6
@@ -296,7 +301,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
 
   ! For each part, record
   ! sample_traj = .true.
-  if (sample_traj) call record_posn(parts,grd%hdepth)
+  if (sample_traj) call record_posn(parts,ho)
   if (write_traj) then
     call move_all_trajectories(parts)
     call write_trajectory(parts%trajectories, parts%save_short_traj)
@@ -306,6 +311,71 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (really_debug) call print_parts(stderrunit,parts,'particles_run, status')
   if (debug) call parts_chksum(parts, 'run parts (bot)')
 end subroutine particles_run
+
+! ##############################################################################
+!> Checks whether all particles are in k-space and if not, moves them to k-space
+subroutine particles_to_k_space(parts,h)
+   ! Arguments
+   type(particles), pointer :: parts !< Container for all types and memory
+   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+   !Local variables
+   type(particles_gridded), pointer :: grd
+   type(particle), pointer :: part
+   integer :: grdi, grdj
+
+   integer :: stdlogunit, stderrunit
+
+   ! Get the stderr and stdlog unit numbers                                     
+   stderrunit=stderr()
+
+   ! For convenience
+   grd=>parts%grd
+
+   do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
+    part=>parts%list(grdi,grdj)%first
+    do while (associated(part)) ! loop over all parts 
+    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceA, depth,k',part%depth,part%k,part%k_space
+    call find_layer(grd, part%depth, h, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
+    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceB, depth,k',part%depth,part%k,part%k_space
+    part=>part%next
+    enddo
+   enddo ; enddo
+
+end subroutine particles_to_k_space
+
+! ##############################################################################
+
+!> Checks whether all particles are in k-space and if not, moves them to k-space
+
+subroutine particles_to_z_space(parts,h)
+   ! Arguments                                                                 
+   type(particles), pointer :: parts !< Container for all types and memory
+   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+   !Local variables
+   type(particles_gridded), pointer :: grd
+   type(particle), pointer :: part
+   integer :: grdi, grdj
+
+   integer :: stdlogunit, stderrunit
+
+   ! Get the stderr and stdlog unit numbers
+   stderrunit=stderr()
+
+   ! For convenience 
+   grd=>parts%grd
+
+   do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
+    part=>parts%list(grdi,grdj)%first
+    do while (associated(part)) ! loop over all parts 
+    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceA, depth,k',part%depth,part%k,part%k_space
+    call find_depth(grd, part%k, h, part%depth, part%ine,part%jne, part%xi,part%yj, part%k_space)
+    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceB, depth,k',part%depth,part%k,part%k_space
+    part=>part%next
+    enddo
+   enddo ; enddo
+
+end subroutine particles_to_z_space
+
 
 
 ! ##############################################################################
@@ -963,18 +1033,18 @@ integer :: stderrunit
 
 
   ! Get the stderr unit number                                                  
-  stderrunit = stderr()
-  write(stderrunit,*) 'particles_save_restart begins'
+  !stderrunit = stderr()
+  !write(stderrunit,*) 'particles_save_restart begins'
 
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   call parts_chksum(parts, 'write_restart parts')
-  !SPENCER: I HAVE ELLIMINATED THIS CHKSUM, BUT IT NEEDS TO BE PUT BACK
-  if (present(temp) .and. present(salt)) then
-    call write_restart(parts,h,temp,salt)
-  else
-    call write_restart(parts,h)
-  endif
+  !SPENCER: I HAVE ELLIMINATED THIS STUFF, BUT IT NEEDS TO BE PUT BACK
+  !if (present(temp) .and. present(salt)) then
+  !  call write_restart(parts,h,temp,salt)
+  !else
+  !  call write_restart(parts,h)
+  !endif
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart
@@ -996,11 +1066,11 @@ type(particle), pointer :: this, next
   ! we do not need to call it a second time. If particles were controlled
   ! by the coupler then the particles would need to take responsibility for
   ! the restarts at the end of the run.
-  if (present(temp) .and. present(salt)) then
-    call particles_save_restart(parts,h,temp,salt)
-  else
-    call particles_save_restart(parts,h)
-  endif
+  !if (present(temp) .and. present(salt)) then
+  !  call particles_save_restart(parts,h,temp,salt)
+  !else
+  !  call particles_save_restart(parts,h)
+  !endif
 
   call mpp_clock_begin(parts%clock_ini)
   ! Delete parts and structures
@@ -1012,15 +1082,15 @@ type(particle), pointer :: this, next
   deallocate(parts%grd%lat)
   deallocate(parts%grd%lonc)
   deallocate(parts%grd%latc)
-  deallocate(parts%grd%dx)
-  deallocate(parts%grd%dy)
+  !deallocate(parts%grd%dx)
+  !deallocate(parts%grd%dy)
   !deallocate(parts%grd%area)
   deallocate(parts%grd%msk)
   deallocate(parts%grd%cos)
   deallocate(parts%grd%sin)
   deallocate(parts%grd%ocean_depth)
-!  deallocate(parts%grd%domain)
-!  deallocate(parts%grd)
+! ! deallocate(parts%grd%domain)
+! ! deallocate(parts%grd)
   call dealloc_buffer(parts%obuffer_n)
   call dealloc_buffer(parts%obuffer_s)
   call dealloc_buffer(parts%obuffer_e)
@@ -1032,7 +1102,7 @@ type(particle), pointer :: this, next
   call dealloc_buffer(parts%ibuffer_io)
   call dealloc_buffer(parts%obuffer_io)
   call mpp_clock_end(parts%clock_ini)
-  deallocate(parts)
+  !deallocate(parts)
 
   if (mpp_pe()==mpp_root_pe()) write(*,'(a,i8)') 'drifters: particles_end complete',mpp_pe()
 
