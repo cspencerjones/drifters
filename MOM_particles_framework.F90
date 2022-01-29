@@ -3072,6 +3072,8 @@ call find_layer1D(grd, depth,hdepth1Dcum,k)
 
 k_space=.true.
 
+k_space=.true.
+
 end subroutine find_layer
 
 ! ##############################################################################

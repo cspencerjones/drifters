@@ -288,7 +288,9 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
   !Move to k-space if not already
+
   call particles_to_k_space(parts,ho)
+
 
   call evolve_particles(parts)
   if (parts%debug_particle_with_id>0) call monitor_a_part(parts, 'particles_run, after evolve()     ')
@@ -328,15 +330,18 @@ subroutine particles_to_k_space(parts,h)
    ! Get the stderr and stdlog unit numbers                                     
    stderrunit=stderr()
 
+
    ! For convenience
    grd=>parts%grd
 
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts 
+
     write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceA, depth,k',part%depth,part%k,part%k_space
     call find_layer(grd, part%depth, h, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
     write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceB, depth,k',part%depth,part%k,part%k_space
+
     part=>part%next
     enddo
    enddo ; enddo
@@ -356,10 +361,12 @@ subroutine particles_to_z_space(parts,h)
    type(particle), pointer :: part
    integer :: grdi, grdj
 
+
    integer :: stdlogunit, stderrunit
 
    ! Get the stderr and stdlog unit numbers
    stderrunit=stderr()
+
 
    ! For convenience 
    grd=>parts%grd
@@ -367,9 +374,11 @@ subroutine particles_to_z_space(parts,h)
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts 
+
     write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceA, depth,k',part%depth,part%k,part%k_space
     call find_depth(grd, part%k, h, part%depth, part%ine,part%jne, part%xi,part%yj, part%k_space)
     write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceB, depth,k',part%depth,part%k,part%k_space
+
     part=>part%next
     enddo
    enddo ; enddo
