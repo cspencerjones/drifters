@@ -337,11 +337,7 @@ subroutine particles_to_k_space(parts,h)
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts 
-
-    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceA, depth,k',part%depth,part%k,part%k_space
     call find_layer(grd, part%depth, h, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
-    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_k_spaceB, depth,k',part%depth,part%k,part%k_space
-
     part=>part%next
     enddo
    enddo ; enddo
@@ -374,11 +370,7 @@ subroutine particles_to_z_space(parts,h)
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts 
-
-    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceA, depth,k',part%depth,part%k,part%k_space
     call find_depth(grd, part%k, h, part%depth, part%ine,part%jne, part%xi,part%yj, part%k_space)
-    write(stderrunit,'(a,2f9.4,i4)') 'particles_to_z_spaceB, depth,k',part%depth,part%k,part%k_space
-
     part=>part%next
     enddo
    enddo ; enddo

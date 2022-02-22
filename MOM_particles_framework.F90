@@ -3112,9 +3112,6 @@ do klev=0,kint
    endif
 enddo
 
-write(stderrunit,'(a,f9.4)') &
-                     'find_depth1D',depth
-
 end subroutine find_depth1D
 
 ! ############################################################################## 
