@@ -266,8 +266,10 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
  ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
 
-     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
-     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = 0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
+     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
+     !0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
+     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
+    !0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
      grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
 
   do k=2,grd%ke
@@ -1039,13 +1041,13 @@ integer :: stderrunit
 
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
-  call parts_chksum(parts, 'write_restart parts')
+  !call parts_chksum(parts, 'write_restart parts')
   !SPENCER: I HAVE ELLIMINATED THIS STUFF, BUT IT NEEDS TO BE PUT BACK
-  !if (present(temp) .and. present(salt)) then
-  !  call write_restart(parts,h,temp,salt)
-  !else
-  !  call write_restart(parts,h)
-  !endif
+  if (present(temp) .and. present(salt)) then
+    call write_restart(parts,h,temp,salt)
+  else
+    call write_restart(parts,h)
+  endif
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart

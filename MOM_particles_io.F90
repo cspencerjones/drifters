@@ -167,8 +167,6 @@ integer :: grdi, grdj
  stderrunit=stderr()
 
 
- write(stderrunit,*) 'write_restart begins' 
-
   ! For convenience
   grd=>parts%grd
 
@@ -205,24 +203,17 @@ integer :: grdi, grdj
    allocate(id_cnt(nparts))
    allocate(id_ij(nparts))
 
-  write(stderrunit,*) 'write_restart: vars allocated'
-
+ 
   call get_instance_filename("drifters.res.nc", filename)
 
-  write(stderrunit,*) 'write_restart: got filename'
-
+ 
   call set_domain(parts%grd%domain)
-
-  write(stderrunit,*) 'write_restart: set domain'
 
   call register_restart_axis(parts_restart,filename,'i',nparts)
 
-  write(stderrunit,*) 'write_restart: registered axis'
   call set_meta_global(parts_restart,'file_format_major_version',ival=(/file_format_major_version/))
   call set_meta_global(parts_restart,'file_format_minor_version',ival=(/file_format_minor_version/))
   call set_meta_global(parts_restart,'time_axis',ival=(/0/))
-
-  write(stderrunit,*) 'write_restart: file defined1'
 
   !Now start writing in the io_tile_root_pe if there are any parts in the I/O list
 
@@ -285,8 +276,6 @@ integer :: grdi, grdj
       this=>this%next
     enddo
   enddo ; enddo
-
-    write(stderrunit,*) 'write_restart: file defined2'
 
   call save_restart(parts_restart)
   if (really_debug) print *, 'Finish save_restart.' ! LUYU: for debugging
@@ -381,7 +370,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
   do k=1,grd%ke
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
-         grd%uo(i,j,k) = 0.5*(u(i,j,k)+u(i,j+1,k))
+         grd%uo(i,j,k) = u(i,j,k)!0.5*(u(i,j,k)+u(i,j+1,k))
        enddo
     enddo
   enddo
@@ -389,7 +378,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
   do k=1,grd%ke
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
-         grd%vo(i,j,k) = 0.5*(v(i,j,k)+v(i+1,j,k))
+         grd%vo(i,j,k) = v(i,j,k)!0.5*(v(i,j,k)+v(i+1,j,k))
        enddo
     enddo
   enddo
