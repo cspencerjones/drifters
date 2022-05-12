@@ -1031,18 +1031,11 @@ type(particles), pointer :: parts
 real,dimension(:,:,:),optional,intent(in) :: temp, salt
 real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
 
-! Local variables
-integer :: stderrunit
 
-
-  ! Get the stderr unit number                                                  
-  !stderrunit = stderr()
-  !write(stderrunit,*) 'particles_save_restart begins'
 
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   !call parts_chksum(parts, 'write_restart parts')
-  !SPENCER: I HAVE ELLIMINATED THIS STUFF, BUT IT NEEDS TO BE PUT BACK
   if (present(temp) .and. present(salt)) then
     call write_restart(parts,h,temp,salt)
   else
