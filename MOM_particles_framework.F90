@@ -2993,12 +2993,12 @@ end function pos_within_cell
 
 ! ##############################################################################
 
-subroutine find_layer1D(grd, depth,hdepth,k)
+real function find_layer1D(grd, depth,hdepth)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: depth
 real, dimension(:),intent(in) :: hdepth
-real, intent(out) :: k
+!real, intent(out) :: k
 
 !Local                                                                          
 integer :: klev
@@ -3013,7 +3013,7 @@ integer :: stderrunit
 
 
 if (depth.lt.hdepth(1)) then
-   k=depth/hdepth(1)
+   find_layer1D=depth/hdepth(1)
    return
 endif
 
@@ -3021,14 +3021,14 @@ endif
 
 do klev=2,grd%ke
    if (depth.lt.hdepth(klev)) then
-      k=klev - 1 + (depth-hdepth(klev-1))/(hdepth(klev)-hdepth(klev-1))
+      find_layer1D=klev - 1 + (depth-hdepth(klev-1))/(hdepth(klev)-hdepth(klev-1))
       return
    endif
 enddo
 
 
 write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
-end subroutine find_layer1D
+end function find_layer1D
 
 ! ##############################################################################
 
@@ -3068,9 +3068,7 @@ do klev=1,grd%ke
     endif 
 enddo 
 
-call find_layer1D(grd, depth,hdepth1Dcum,k)
-
-k_space=.true.
+   k = find_layer1D(grd, depth,hdepth1Dcum)
 
 k_space=.true.
 
@@ -3561,12 +3559,20 @@ logical function unit_tests(parts)
   ! Local variables
   type(particles_gridded), pointer :: grd
   integer :: stderrunit,i,j,c1,c2
+  integer :: k1
   integer(kind=8) :: id
+  real, dimension(parts%grd%ke) :: hdummy 
 
   ! This function returns True is a unit test fails
   unit_tests=.false.
   ! For convenience
   grd=>parts%grd
+ 
+ hdummy(1) = 100
+  do k1 =2,grd%ke
+      hdummy(k1) = hdummy(k1-1)+100
+  enddo
+
   stderrunit=stderr()
 
   i=grd%isc; j=grd%jsc
@@ -3574,6 +3580,7 @@ logical function unit_tests(parts)
   call localTest( unit_tests, bilin(grd, grd%lon, i, j, 1., 1.), grd%lon(i,j) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 0.), grd%lat(i,j-1) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 1.), grd%lat(i,j) )
+  call localTest( unit_tests, find_layer1D(grd, 350.,hdummy), 3.5)
 
   ! Test 64-bit ID conversion
   i = 1440*1080 ; c1 = 2**30 + 2**4 + 1
