@@ -3075,13 +3075,12 @@ k_space=.true.
 end subroutine find_layer
 
 ! ##############################################################################
-subroutine find_depth1D(grd,k,h,depth)
+real function find_depth1D(grd,k,h)
 !Arguments
 type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: k
 real, dimension(:),intent(in) :: h
-real, intent(out) :: depth
-
+!real, intent(out) :: depth
 
 !Local
 integer :: klev
@@ -3101,16 +3100,16 @@ kint=floor(k)
 !else
 !   depth = h(kint)+(h(kint+1)-h(kint))*(k-kint)
 !endif
-depth=0
+find_depth1D=0
 do klev=0,kint
    if (klev.eq.kint)then
-     depth = depth+h(klev+1)*(k-kint)
+     find_depth1D = find_depth1D+h(klev+1)*(k-kint)
    else
-     depth=depth+h(klev+1)
+     find_depth1D=find_depth1D+h(klev+1)
    endif
 enddo
 
-end subroutine find_depth1D
+end function find_depth1D
 
 ! ############################################################################## 
 !>Finds what depth the particle is at  
@@ -3141,7 +3140,7 @@ enddo
 
 k_space=.false.
 
-call find_depth1D(grd,k,hdepth1D,depth)
+depth = find_depth1D(grd,k,hdepth1D)
 
 end subroutine find_depth
 
@@ -3562,6 +3561,7 @@ logical function unit_tests(parts)
   integer :: k1
   integer(kind=8) :: id
   real, dimension(parts%grd%ke) :: hdummy 
+  real, dimension(parts%grd%ke) :: hddummy
 
   ! This function returns True is a unit test fails
   unit_tests=.false.
@@ -3569,8 +3569,10 @@ logical function unit_tests(parts)
   grd=>parts%grd
  
  hdummy(1) = 100
+ hddummy(1) = 100
   do k1 =2,grd%ke
-      hdummy(k1) = hdummy(k1-1)+100
+      hdummy(k1) = 100
+      hddummy(k1) = hddummy(k1-1)+100
   enddo
 
   stderrunit=stderr()
@@ -3580,7 +3582,8 @@ logical function unit_tests(parts)
   call localTest( unit_tests, bilin(grd, grd%lon, i, j, 1., 1.), grd%lon(i,j) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 0.), grd%lat(i,j-1) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 1.), grd%lat(i,j) )
-  call localTest( unit_tests, find_layer1D(grd, 350.,hdummy), 3.5)
+  call localTest( unit_tests, find_layer1D(grd, 350.,hddummy), 3.5)
+  call localTest( unit_tests, find_depth1D(grd,3.5,hdummy), 350.)
 
   ! Test 64-bit ID conversion
   i = 1440*1080 ; c1 = 2**30 + 2**4 + 1
