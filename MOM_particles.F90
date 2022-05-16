@@ -143,13 +143,28 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  real :: cos_rot, sin_rot
  real :: hxm, hxp
  integer :: kint
-
+ real  ::  xiu,yjv
+ integer  ::  iu, jv
  kint = ceiling(k)
 
  cos_rot=bilin(grd, grd%cos, i, j, xi, yj) ! If true, uses the inverted bilin function
  sin_rot=bilin(grd, grd%sin, i, j, xi, yj)
 
- uo=bilin(grd, grd%uo(:,:,kint), i, j, xi, yj)
+ xiu = xi+0.5
+ if (xiu>1) then
+     xiu= xiu-1.
+     iu=i+1
+ else
+    iu=i
+ endif
+ uo=bilin(grd, grd%uo(:,:,kint), iu, j, xiu, yj)
+ yjv=yj+0.5
+ if (yjv>1) then
+    yjv=yjv+1.
+    jv=j+1
+ else
+    jv=j
+ endif
  vo=bilin(grd, grd%vo(:,:,kint), i, j, xi, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
