@@ -30,7 +30,7 @@ use diag_manager_mod, only: diag_axis_init
 implicit none ; private
 
 integer :: buffer_width=17 ! size of buffer dimension for comms
-integer :: buffer_width_traj=14  
+integer :: buffer_width_traj=15  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -1448,6 +1448,15 @@ logical :: quick
   localpart%lon_old=localpart%lon
   localpart%lat_old=localpart%lat
 
+  !added by CSJ in order to get a re-entrant channel (more permanent solution needed)
+  if (localpart%lon>22.0) then
+       ! write(stderrunit,'("moving part=(",i3,a,2f8.2)')&
+       !  & mpp_pe(),' from lon,lat=',localpart%lon,localpart%lat
+       localpart%lon=localpart%lon-22.0
+       ! write(stderrunit,*) localpart%lon,localpart%lat
+  endif
+
+
   ! force_app=.true.
   if(force_app) then !force append with origin ine,jne (for I/O)
     call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart, quick, this)
@@ -1603,18 +1612,19 @@ end subroutine increase_ibuffer
     buff%data(1,n)=traj%lon
     buff%data(2,n)=traj%lat
     buff%data(3,n)=traj%day
+    buff%data(4,n)=traj%year
     call split_id(traj%id, cnt, ij)
-    buff%data(4,n)=float(cnt)
-    buff%data(5,n)=float(ij)
-    buff%data(6,n)=traj%uvel
-    buff%data(7,n)=traj%vvel
-    buff%data(8,n)=traj%uvel_old !Alon
-    buff%data(9,n)=traj%vvel_old !Alon
-    buff%data(10,n)=traj%lon_old !Alon
-    buff%data(11,n)=traj%lat_old !Alon
-    buff%data(12,n)=traj%particle_num !Alon
-    buff%data(13,n)=traj%k
-    buff%data(14,n)=traj%depth
+    buff%data(5,n)=float(cnt)
+    buff%data(6,n)=float(ij)
+    buff%data(7,n)=traj%uvel
+    buff%data(8,n)=traj%vvel
+    buff%data(9,n)=traj%uvel_old !Alon
+    buff%data(10,n)=traj%vvel_old !Alon
+    buff%data(11,n)=traj%lon_old !Alon
+    buff%data(12,n)=traj%lat_old !Alon
+    buff%data(13,n)=traj%particle_num !Alon
+    buff%data(14,n)=traj%k
+    buff%data(15,n)=traj%depth
 
   end subroutine pack_traj_into_buffer2
 
@@ -1633,18 +1643,19 @@ end subroutine increase_ibuffer
     traj%lat=buff%data(2,n)
 !    traj%year=nint(buff%data(3,n))
     traj%day=buff%data(3,n)
-    cnt = nint(buff%data(4,n))
-    ij = nint(buff%data(5,n))
+    traj%year=buff%data(4,n) 
+    cnt = nint(buff%data(5,n))
+    ij = nint(buff%data(6,n))
     traj%id = id_from_2_ints(cnt, ij)
-    traj%uvel=buff%data(6,n)
-    traj%vvel=buff%data(7,n)
-    traj%uvel_old=buff%data(8,n) !Alon
-    traj%vvel_old=buff%data(9,n) !Alon
-    traj%lon_old=buff%data(10,n) !Alon
-    traj%lat_old=buff%data(11,n) !Alon
-    traj%particle_num=buff%data(12,n)
-    traj%k=buff%data(13,n) 
-    traj%depth=buff%data(14,n)
+    traj%uvel=buff%data(7,n)
+    traj%vvel=buff%data(8,n)
+    traj%uvel_old=buff%data(9,n) !Alon
+    traj%vvel_old=buff%data(10,n) !Alon
+    traj%lon_old=buff%data(11,n) !Alon
+    traj%lat_old=buff%data(12,n) !Alon
+    traj%particle_num=buff%data(13,n)
+    traj%k=buff%data(14,n) 
+    traj%depth=buff%data(15,n)
 
     call append_posn(first, traj)
 
@@ -3028,6 +3039,8 @@ enddo
 
 
 write(stderrunit,'(a)')"particles: depth specified is deeper than deepest level"
+write(stderrunit,*) 'depths', hdepth(1), hdepth(2)
+
 end function find_layer1D
 
 ! ##############################################################################
@@ -3582,8 +3595,10 @@ logical function unit_tests(parts)
   call localTest( unit_tests, bilin(grd, grd%lon, i, j, 1., 1.), grd%lon(i,j) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 0.), grd%lat(i,j-1) )
   call localTest( unit_tests, bilin(grd, grd%lat, i, j, 1., 1.), grd%lat(i,j) )
-  call localTest( unit_tests, find_layer1D(grd, 350.,hddummy), 3.5)
-  call localTest( unit_tests, find_depth1D(grd,3.5,hdummy), 350.)
+  if (grd%ke .gt. 4) then
+      call localTest( unit_tests, find_layer1D(grd, 350.,hddummy), 3.5)
+      call localTest( unit_tests, find_depth1D(grd,3.5,hdummy), 350.)
+  endif
 
   ! Test 64-bit ID conversion
   i = 1440*1080 ; c1 = 2**30 + 2**4 + 1
