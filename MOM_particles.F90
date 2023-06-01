@@ -157,7 +157,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     jv=j
  endif
- uo=bilin(grd, grd%uo(:,:,kint), i, jv, xi, yjv)
+ uo=bilin(grd, grd%uo(grd%isd:,:,kint), i+1, jv, xi, yjv)
 
  xiu = xi+0.5
  if (xiu>1) then
@@ -166,7 +166,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     iu=i
  endif
- vo=bilin(grd, grd%vo(:,:,kint), iu, j, xiu, yj)
+ vo=bilin(grd, grd%vo(:,grd%jsd:,kint), iu, j+1, xiu, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
@@ -282,9 +282,12 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
  ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
 
-     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
+     grd%uo(:,:,:) = uo(:,:,:)
+     grd%vo(:,:,:) = vo(:,:,:)
+
+!     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
      !0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
-     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
+!     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
     !0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
      grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
 
