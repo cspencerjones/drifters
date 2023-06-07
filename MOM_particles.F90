@@ -298,9 +298,9 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   ! Make sure that gridded values agree with mask  (to get ride of NaN values)
   do i=grd%isd,grd%ied ; do j=grd%jsd,grd%jed
     ! Initializing all gridded values to zero
-    if (grd%msk(i,j).lt. 0.5) then
-      grd%uo(i,j,:) = 0.0 ;  grd%vo(i,j,:) = 0.0
-    endif
+!    if (grd%msk(i,j).lt. 0.5) then
+!      grd%uo(i,j,:) = 0.0 ;  grd%vo(i,j,:) = 0.0
+!    endif
 !    if (grd%uo(i,j) .ne. grd%uo(i,j)) grd%uo(i,j)=0.
 !    if (grd%vo(i,j) .ne. grd%vo(i,j)) grd%vo(i,j)=0.
   enddo; enddo
