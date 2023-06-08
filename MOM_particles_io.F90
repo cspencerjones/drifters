@@ -228,12 +228,6 @@ integer :: grdi, grdj
     id = register_restart_field(parts_restart,filename,'temp',dr_temp,longname='Potential Temperature',units='degC')
     id = register_restart_field(parts_restart,filename,'salt',dr_salt,longname='Salinity',units='PPT')
   endif
-!  if (.not. parts%Runge_not_Verlet) then
-!    id = register_restart_field(parts_restart,filename,'axn',axn,longname='explicit zonal acceleration',units='m/s^2')
-!    id = register_restart_field(parts_restart,filename,'ayn',ayn,longname='explicit meridional acceleration',units='m/s^2')
-!    id = register_restart_field(parts_restart,filename,'bxn',bxn,longname='inplicit zonal acceleration',units='m/s^2')
-!    id = register_restart_field(parts_restart,filename,'byn',byn,longname='implicit meridional acceleration',units='m/s^2')
-!  endif
   id = register_restart_field(parts_restart,filename,'ine',ine,longname='i index',units='none')
   id = register_restart_field(parts_restart,filename,'jne',jne,longname='j index',units='none')
   id = register_restart_field(parts_restart,filename,'start_lon',start_lon, &

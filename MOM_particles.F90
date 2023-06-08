@@ -95,42 +95,6 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
 
 end subroutine particles_init
 
-! ###############################################################################
-!> Returns the axis intercept of a line AB
-!!
-!! This routine returns the position (x0,y0) at which a line AB intercepts the x or y axis.
-!! The value No_intercept_val is returned when the line does not intercept the axis.
-subroutine intercept_of_a_line(Ax, Ay, Bx, By, axes1, x0, y0)
-  ! Arguments
-  real, intent(in) :: Ax !< x-position of corner A
-  real, intent(in) :: Ay !< y-position of corner A
-  real, intent(in) :: Bx !< x-position of corner B
-  real, intent(in) :: By !< y-position of corner B
-  character, intent(in) :: axes1 !< Either 'x' or 'y'
-  real, intent(out) :: x0 !< x-position of intercept
-  real, intent(out) :: y0 !< y-position of intercept
-  ! Local variables
-  real :: No_intercept_val ! Huge value used to make sure that the intercept is outside the triangle in the parallel case.
-
-  No_intercept_val=100000000000. ! Huge value used to make sure that the intercept is outside the triangle in the parallel case.
-  x0=No_intercept_val
-  y0=No_intercept_val
-
-  if (axes1=='x') then ! x intercept
-    if (Ay.ne.By) then
-      x0=Ax -(((Ax-Bx)/(Ay-By))*Ay)
-      y0=0.
-    endif
-  endif
-
-  if (axes1=='y') then ! y intercept
-    if (Ax.ne.Bx) then
-      x0=0.
-      y0=-(((Ay-By)/(Ax-Bx))*Ax)+Ay
-    endif
-  endif
-end subroutine intercept_of_a_line
-
 
 subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
 ! Arguments
@@ -194,26 +158,6 @@ end subroutine interp_flds
 ! ##############################################################################
 
 
-subroutine accel(parts, part, i, j, xi, yj, lat, uvel, vvel, uvel0, vvel0, dt, ax, ay, axn, ayn, bxn, byn, debug_flag) !Saving  acceleration for Verlet, Adding Verlet flag - Alon  MP1
-!subroutine accel(parts, part, i, j, xi, yj, lat, uvel, vvel, uvel0, vvel0, dt, ax, ay, debug_flag) !old version commmented out by Alon
-! Arguments
-type(particles), pointer :: parts
-type(particle), pointer :: part
-integer, intent(in) :: i, j
-real, intent(in) :: xi, yj, lat, uvel, vvel, uvel0, vvel0, dt
-real, intent(inout) :: ax, ay
-real, intent(inout) :: axn, ayn, bxn, byn ! Added implicit and explicit accelerations to output -Alon
-logical, optional :: debug_flag
-
-ax=0
-ay=0
-axn=0
-ayn=0
-bxn=0
-byn=0
-
-end subroutine accel
-! ##############################################################################
 
 !> The main driver the steps updates particles
 subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
@@ -409,7 +353,6 @@ subroutine evolve_particles(parts)
   type(particles_gridded), pointer :: grd
   type(particle), pointer :: part
   real :: uveln, vveln, lonn, latn
-  real :: axn, ayn, bxn, byn          ! Added by Alon - explicit and implicit accelerations from the previous step
   real :: xi, yj
   integer :: i, j
   integer :: grdi, grdj
@@ -447,22 +390,11 @@ subroutine evolve_particles(parts)
           if (debug) call error_mesg('diamonds, evolve_particle','part is in wrong starting cell!',FATAL)
         endif
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
-
-	! Interpolate gridded velocity fields to part and generate uvel and vvel
-	call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
-          !Time stepping schemes:
-          if (Runge_not_Verlet) then
-            call Runge_Kutta_stepping(parts,part, axn, ayn, bxn, byn, uveln, vveln,lonn, latn, i, j, xi, yj)
-          endif
-          if (.not.Runge_not_Verlet) then
-            !call verlet_stepping(parts,part, axn, ayn, bxn, byn, uveln, vveln) ! LUYU: consider RK for now
-          endif
-
-        ! Saving all the particle variables.
-!        part%axn=axn
-!        part%ayn=ayn
-!        part%bxn=bxn
-!        part%byn=byn
+!       Interpolate gridded velocity fields to part and generate uvel and vvel
+        call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
+          !Time stepping schemes:       
+        call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        
         part%uvel=uveln
         part%vvel=vveln
 
@@ -487,14 +419,10 @@ subroutine evolve_particles(parts)
 end subroutine evolve_particles
 
 !> Calculate explicit and implicit accelerations, new velocity, and new position, using the fourth order Runge-Kutta  method
-subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, lonn, latn, i, j, xi, yj)
+subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
   ! Arguments
   type(particles), pointer :: parts !< Container for all types and memory
   type(particle), pointer, intent(inout) :: part !< particle
-  real, intent(out) :: axn !< Explicit zonal acceleration (m/s2)
-  real, intent(out) :: ayn !< Explicit meridional acceleration (m/s2)
-  real, intent(out) :: bxn !< Implicit zonal acceleration (m/s2)
-  real, intent(out) :: byn !< Implicit meridional acceleration (m/s2)
   real, intent(out) :: uveln !< New zonal velocity (m/s)
   real, intent(out) :: vveln !< New meridional velocity (m/s)
   real, intent(out) :: lonn !< New longitude (degree E)
@@ -505,10 +433,10 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
   real, intent(out) :: yj !< New non-dimensional y-position
   ! Local variables
   type(particles_gridded), pointer :: grd
-  real :: uvel1, vvel1, lon1, lat1, u1, v1, dxdl1, ax1, ay1, axn1, ayn1
-  real :: uvel2, vvel2, lon2, lat2, u2, v2, dxdl2, ax2, ay2, axn2, ayn2
-  real :: uvel3, vvel3, lon3, lat3, u3, v3, dxdl3, ax3, ay3, axn3, ayn3
-  real :: uvel4, vvel4, lon4, lat4, u4, v4, dxdl4, ax4, ay4, axn4, ayn4
+  real :: uvel1, vvel1, lon1, lat1, u1, v1, dxdl1
+  real :: uvel2, vvel2, lon2, lat2, u2, v2, dxdl2
+  real :: uvel3, vvel3, lon3, lat3, u3, v3, dxdl3
+  real :: uvel4, vvel4, lon4, lat4, u4, v4, dxdl4
   real :: x1, xdot1, xddot1, y1, ydot1, yddot1, xddot1n, yddot1n
   real :: x2, xdot2, xddot2, y2, ydot2, yddot2, xddot2n, yddot2n
   real :: x3, xdot3, xddot3, y3, ydot3, yddot3, xddot3n, yddot3n
@@ -550,10 +478,6 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
   if ((part%lat>89.) .and. (parts%grd%grid_is_latlon)) on_tangential_plane=.true.
   i1=i;j1=j
 
-  ! Loading past accelerations - Alon
-  axn=part%axn; ayn=part%ayn !Alon
-  axn1=axn; axn2=axn; axn3=axn; axn4=axn
-  ayn1=ayn; ayn2=ayn; ayn3=ayn; ayn4=ayn
 
   ! A1 = A(X1)
   lon1=part%lon; lat1=part%lat
@@ -566,10 +490,6 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
   if (on_tangential_plane) call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
   u1=uvel1*dxdl1; v1=vvel1*dydl
 
-  call accel(parts, part, i, j, xi, yj, lat1, uvel1, vvel1, uvel1, vvel1, dt_2, ax1, ay1, axn1, ayn1, bxn, byn) !axn,ayn, bxn, byn  - Added by Alon
-  !call accel(parts, part, i, j, xi, yj, lat1, uvel1, vvel1, uvel1, vvel1, dt, ax1, ay1, axn1, ayn1, bxn, byn) !Note change to dt. Markpoint_1
-  if (on_tangential_plane) call rotvec_to_tang(lon1,ax1,ay1,xddot1,yddot1)
-  if (on_tangential_plane) call rotvec_to_tang(lon1,axn1,ayn1,xddot1n,yddot1n) !Alon
 
   !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
   if (on_tangential_plane) then
@@ -579,7 +499,7 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
     call rotvec_from_tang(lon2,xdot2,ydot2,uvel2,vvel2)
   else
     lon2=lon1+dt_2*u1; lat2=lat1+dt_2*v1
-    uvel2=uvel1+dt_2*ax1; vvel2=vvel1+dt_2*ay1
+    uvel2=uvel1; vvel2=vvel1
   endif
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lon2, lat2, uvel2, vvel2, i, j, xi, yj, bounced, error_flag, part%id)
@@ -590,10 +510,6 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
   call  convert_from_meters_to_grid(lat2,parts%grd%grid_is_latlon ,dxdl2,dydl)
   !dxdl2=r180_pi/(Rearth*cos(lat2*pi_180))
   u2=uvel2*dxdl2; v2=vvel2*dydl
-  call accel(parts, part, i, j, xi, yj, lat2, uvel2, vvel2, uvel1, vvel1, dt_2, ax2, ay2, axn2, ayn2, bxn, byn) !axn, ayn, bxn, byn - Added by Alon
-  !call accel(parts, part, i, j, xi, yj, lat2, uvel2, vvel2, uvel1, vvel1, dt, ax2, ay2, axn2, ayn2, bxn, byn) !Note change to dt. Markpoint_1
-  if (on_tangential_plane) call rotvec_to_tang(lon2,ax2,ay2,xddot2,yddot2)
-  if (on_tangential_plane) call rotvec_to_tang(lon2,axn2,ayn2,xddot2n,yddot2n) !Alon
 
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
   if (on_tangential_plane) then
@@ -603,7 +519,7 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
     call rotvec_from_tang(lon3,xdot3,ydot3,uvel3,vvel3)
   else
     lon3=lon1+dt_2*u2; lat3=lat1+dt_2*v2
-    uvel3=uvel1+dt_2*ax2; vvel3=vvel1+dt_2*ay2
+    uvel3=uvel1; vvel3=vvel1
   endif
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lon3, lat3, uvel3, vvel3, i, j, xi, yj, bounced, error_flag, part%id)
@@ -612,9 +528,6 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
   call  convert_from_meters_to_grid(lat3,parts%grd%grid_is_latlon ,dxdl3,dydl)
   !dxdl3=r180_pi/(Rearth*cos(lat3*pi_180))
   u3=uvel3*dxdl3; v3=vvel3*dydl
-  call accel(parts, part, i, j, xi, yj, lat3, uvel3, vvel3, uvel1, vvel1, dt, ax3, ay3, axn3, ayn3, bxn, byn) !axn, ayn, bxn, byn - Added by Alon
-  if (on_tangential_plane) call rotvec_to_tang(lon3,ax3,ay3,xddot3,yddot3)
-  if (on_tangential_plane) call rotvec_to_tang(lon3,axn3,ayn3,xddot3n,yddot3n) !Alon
 
   !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
   if (on_tangential_plane) then
@@ -624,18 +537,14 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
     call rotvec_from_tang(lon4,xdot4,ydot4,uvel4,vvel4)
   else
     lon4=lon1+dt*u3; lat4=lat1+dt*v3
-    uvel4=uvel1+dt*ax3; vvel4=vvel1+dt*ay3
+    uvel4=uvel1; vvel4=vvel1
   endif
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lon4, lat4, uvel4, vvel4, i, j, xi, yj, bounced, error_flag, part%id)
   i4=i; j4=j
-  ! if (bounced.and.on_tangential_plane) call rotpos_to_tang(lon4,lat4,x4,y4)
   call  convert_from_meters_to_grid(lat4,parts%grd%grid_is_latlon ,dxdl4,dydl)
   !dxdl4=r180_pi/(Rearth*cos(lat4*pi_180))
   u4=uvel4*dxdl4; v4=vvel4*dydl
-  call accel(parts, part, i, j, xi, yj, lat4, uvel4, vvel4, uvel1, vvel1, dt, ax4, ay4, axn4, ayn4, bxn, byn) !axn, ayn, bxn, byn - Added by Alon
-  if (on_tangential_plane) call rotvec_to_tang(lon4,ax4,ay4,xddot4,yddot4)
-  if (on_tangential_plane) call rotvec_to_tang(lon4,axn4,ayn4,xddot4n,yddot4n)
 
   !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
   !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
@@ -648,16 +557,11 @@ subroutine Runge_Kutta_stepping(parts, part, axn, ayn, bxn, byn, uveln, vveln, l
     yddotn=( (yddot1n+yddot4n)+2.*(yddot2n+yddot3n) )/6.  !Alon
     call rotpos_from_tang(xn,yn,lonn,latn)
     call rotvec_from_tang(lonn,xdotn,ydotn,uveln,vveln)
-    call rotvec_from_tang(lonn,xddotn,yddotn,axn,ayn) !Alon
   else
     lonn=part%lon+dt_6*( (u1+u4)+2.*(u2+u3) )
     latn=part%lat+dt_6*( (v1+v4)+2.*(v2+v3) )
-    uveln=part%uvel+dt_6*( (ax1+ax4)+2.*(ax2+ax3) )
-    vveln=part%vvel+dt_6*( (ay1+ay4)+2.*(ay2+ay3) )
-    axn=( (axn1+axn4)+2.*(axn2+axn3) )/6. !Alon
-    ayn=( (ayn1+ayn4)+2.*(ayn2+ayn3) )/6. !Alon
-    bxn=(((ax1+ax4)+2.*(ax2+ax3) )/6)  - (axn/2)
-    byn=(((ay1+ay4)+2.*(ay2+ay3) )/6)  - (ayn/2)
+    uveln=part%uvel
+    vveln=part%vvel
   endif
 
   i=i1;j=j1;xi=part%xi;yj=part%yj
@@ -888,8 +792,6 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
       if (inm>grd%isd) then
         inm=inm-1
       endif
-    elseif (xi.gt.1.) then
-!    elseif (xi.ge.1.) then   !Alon: maybe it should be .ge.
       if (inm<grd%ied) then
         inm=inm+1
       endif
@@ -922,43 +824,43 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
     icount=icount+1
     if (xi.lt.0.) then
       if (i>grd%isd) then
-        if (grd%msk(i-1,j)>0.) then
+!        if (grd%msk(i-1,j)>0.) then
           if (i>grd%isd+1) i=i-1
         else
          !write(stderr(),'(a,6f8.3,i)') 'drifters, adjust: bouncing part from west',lon,lat,xi,yj,uvel,vvel,mpp_pe()
           bounced=.true.
         endif
-      endif
+!      endif
     elseif (xi.ge.1.) then    !Alon!!!!
 !    elseif (xi.gt.1.) then
       if (i<grd%ied) then
-        if (grd%msk(i+1,j)>0.) then
+!        if (grd%msk(i+1,j)>0.) then
           if (i<grd%ied) i=i+1
         else
          !write(stderr(),'(a,6f8.3,i)') 'drifters, adjust: bouncing part from east',lon,lat,xi,yj,uvel,vvel,mpp_pe()
           bounced=.true.
-        endif
+!        endif
       endif
     endif
     if (yj.lt.0.) then
       if (j>grd%jsd) then
-        if (grd%msk(i,j-1)>0.) then
+!        if (grd%msk(i,j-1)>0.) then
           if (j>grd%jsd+1) j=j-1
         else
          !write(stderr(),'(a,6f8.3,i)') 'drifters, adjust: bouncing part from south',lon,lat,xi,yj,uvel,vvel,mpp_pe()
           bounced=.true.
         endif
-      endif
+!      endif
     elseif (yj.ge.1.) then     !Alon.
 !    elseif (yj.gt.1.) then
       if (j<grd%jed) then
-        if (grd%msk(i,j+1)>0.) then
+!        if (grd%msk(i,j+1)>0.) then
           if (j<grd%jed) j=j+1
         else
          !write(stderr(),'(a,6f8.3,i)') 'drifters, adjust: bouncing part from north',lon,lat,xi,yj,uvel,vvel,mpp_pe()
           bounced=.true.
         endif
-      endif
+!      endif
     endif
     if (bounced) then
       if (xi>=1.) xi=1.-posn_eps   !Alon.
@@ -985,7 +887,8 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
  !  endif
  !endif
 
-  if (.not.bounced.and.lret.and.grd%msk(i,j)>0.) return ! Landed in ocean without bouncing so all is well
+  if (.not.bounced.and.lret) return
+ ! if (.not.bounced.and.lret.and.grd%msk(i,j)>0.) return ! Landed in ocean without bouncing so all is well
 
   if (.not.bounced.and..not.lret) then ! This implies the part traveled many cells without getting far enough
     if (debug) then

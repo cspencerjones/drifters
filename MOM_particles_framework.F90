@@ -156,7 +156,6 @@ type :: particle
   real :: lon, lat, depth, uvel, vvel !< position (degrees) and zonal and meridional velocities (m/s)
   real :: lon_old, lat_old, uvel_old, vvel_old  !< previous position (degrees) and zonal
                                                 !< and meridional velocities (m/s)
-  real :: axn, ayn, bxn, byn                    !< explicit and implicit accelerations (currently disabled)
   real :: start_lon, start_lat, start_day       !< origination position (degrees) and day
   integer :: start_year                         !< origination year
   real :: halo_part  !< equal to zero for particles on the computational domain, and 1 for particles on the halo
