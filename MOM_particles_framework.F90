@@ -366,7 +366,6 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
 
 
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-  !is=grd%isd; ie=grd%ied; js=grd%jsd; je=grd%jed
   grd%lon(is:ie,js:je)=Grid%geolonBu(is:ie,js:je)
   grd%lat(is:ie,js:je)=Grid%geolatBu(is:ie,js:je)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
@@ -502,17 +501,6 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   parts%debug_particle_with_id=debug_particle_with_id
 
 
-! if (debug) then
-!    call grd_chksum2(grd, grd%lon, 'init lon')
-!    call grd_chksum2(grd, grd%lat, 'init lat')
-!    call grd_chksum2(grd, grd%lonc, 'init lonc')
-!    call grd_chksum2(grd, grd%latc, 'init latc')
-!    call grd_chksum2(grd, grd%area, 'init area')
-!    call grd_chksum2(grd, grd%msk, 'init msk')
-!    call grd_chksum2(grd, grd%cos, 'init cos')
-!    call grd_chksum2(grd, grd%sin, 'init sin')
-!    call grd_chksum2(grd, grd%ocean_depth, 'init ocean_depth')
-!  endif
 
   if (do_unit_tests) then
    if (unit_tests(parts)) call error_mesg('particles, particles_init', 'Unit tests failed!', FATAL)
@@ -532,7 +520,6 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
                           generate_lats(1), generate_lats(2), generate_lats(3))
   endif
 
- !write(stderrunit,*) 'particles: done'
   call mpp_clock_end(parts%clock_ini)
   call mpp_clock_end(parts%clock)
 
@@ -760,7 +747,6 @@ logical :: halo_debugging
   do grdj = grd%jsc,grd%jec ; do grdi = grd%iec-halo_width+2,grd%iec
     this=>parts%list(grdi,grdj)%first
     do while (associated(this))
-    !write(stderrunit,*)  'sending east', this%id, this%ine, this%jne, mpp_pe()
       kick_the_bucket=>this
       this=>this%next
       nparts_to_send_e=nparts_to_send_e+1
@@ -967,7 +953,6 @@ logical :: halo_debugging
       write(stderrunit,'(a,i4,a,i4)') 'particles, update_halos: nparts_rcvd_from_s=',nparts_rcvd_from_s,' on PE',mpp_pe()
       write(stderrunit,'(a,i4,a,i4)') 'particles, update_halos: nparts_rcvd_from_e=',nparts_rcvd_from_e,' on PE',mpp_pe()
       write(stderrunit,'(a,i4,a,i4)') 'particles, update_halos: nparts_rcvd_from_w=',nparts_rcvd_from_w,' on PE',mpp_pe()
-      !call error_mesg('particles, update_halos:', 'We lost some parts!', FATAL)
     endif
   endif
   if (debug) then
@@ -1007,7 +992,6 @@ subroutine delete_all_parts_in_list(parts, grdj, grdi)
     kick_the_bucket=>this
     this=>this%next
     call destroy_particle(kick_the_bucket)
-   !call delete_particle_from_list(parts%list(grdi,grdj)%first,kick_the_bucket)
   enddo
   parts%list(grdi,grdj)%first=>null()
 end  subroutine delete_all_parts_in_list
@@ -1300,10 +1284,6 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, part%ine)
   call push_buffer_value(buff%data(:,n), counter, part%jne)
   call push_buffer_value(buff%data(:,n), counter, part%k)
-!  call push_buffer_value(buff%data(:,n), counter, part%axn)
-!  call push_buffer_value(buff%data(:,n), counter, part%ayn)
-!  call push_buffer_value(buff%data(:,n), counter, part%bxn)
-!  call push_buffer_value(buff%data(:,n), counter, part%byn)
   call push_buffer_value(buff%data(:,n), counter, part%halo_part)
 
 
@@ -1434,10 +1414,6 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%ine)
   call pull_buffer_value(buff%data(:,n), counter, localpart%jne)
   call pull_buffer_value(buff%data(:,n), counter, localpart%k)
-!  call pull_buffer_value(buff%data(:,n), counter, localpart%axn)
-!  call pull_buffer_value(buff%data(:,n), counter, localpart%ayn)
-!  call pull_buffer_value(buff%data(:,n), counter, localpart%bxn)
-!  call pull_buffer_value(buff%data(:,n), counter, localpart%byn)
   call pull_buffer_value(buff%data(:,n), counter, localpart%halo_part)
 
 
@@ -1474,8 +1450,6 @@ logical :: quick
          & mpp_pe(),') Failed to find i,j=',localpart%ine,localpart%jne,' for lon,lat=',localpart%lon,localpart%lat
         write(stderrunit,*) localpart%lon,localpart%lat
         write(stderrunit,*) localpart%uvel,localpart%vvel
- !       write(stderrunit,*) localpart%axn,localpart%ayn !Alon
- !       write(stderrunit,*) localpart%bxn,localpart%byn !Alon
         write(stderrunit,*) localpart%uvel_old,localpart%vvel_old
         write(stderrunit,*) localpart%lon_old,localpart%lat_old
         write(stderrunit,*) grd%isc,grd%iec,grd%jsc,grd%jec
@@ -1522,7 +1496,6 @@ integer :: new_size, old_size
 
   if (old_size.ne.new_size) then
     allocate(new)
-    !allocate(new%data(buffer_width,new_size))
     allocate(new%data(width,new_size))
     new%size=new_size
     if (associated(old)) then
@@ -1531,7 +1504,6 @@ integer :: new_size, old_size
       deallocate(old)
     endif
     old=>new
-   !write(stderr(),*) 'particles, increase_ibuffer',mpp_pe(),' increased to',new_size
   endif
 
 end subroutine increase_ibuffer
@@ -1566,7 +1538,6 @@ end subroutine increase_ibuffer
         deallocate(old)
       endif
       old=>new
-     !write(stderr(),*) 'particles, increase_ibuffer',mpp_pe(),' increased to',new_size
     endif
 
   end subroutine increase_ibuffer_traj
@@ -1593,7 +1564,6 @@ end subroutine increase_ibuffer
       deallocate(old)
     endif
     old=>new
-   !write(stderr(),*) 'particles, increase_buffer',mpp_pe(),' increased to',new_size
 
   end subroutine increase_buffer_traj
 
@@ -2004,10 +1974,6 @@ type(particle), pointer :: part1, part2
   if (part1%lat.ne.part2%lat) return
   if (part1%uvel.ne.part2%uvel) return
   if (part1%vvel.ne.part2%vvel) return
-!  if (part1%axn.ne.part2%axn) return  !Alon
-!  if (part1%ayn.ne.part2%ayn) return  !Alon
-!  if (part1%bxn.ne.part2%bxn) return  !Alon
-!  if (part1%byn.ne.part2%byn) return  !Alon
   if (part1%uvel_old.ne.part2%uvel_old) return  !Alon
   if (part1%vvel_old.ne.part2%vvel_old) return  !Alon
   if (part1%lon_old.ne.part2%lon_old) return  !Alon
@@ -2896,7 +2862,7 @@ integer :: stderrunit
   endif
 
   if (present(explain)) then
-	if(explain) write(stderrunit,'(a,2f12.6)') 'pos_within_cell: xi,yj=',xi,yj
+        if(explain) write(stderrunit,'(a,2f12.6)') 'pos_within_cell: xi,yj=',xi,yj
   endif
 
  !if (.not. is_point_in_cell(grd, x, y, i, j) ) then
@@ -3191,27 +3157,6 @@ end subroutine check_position
 
 
 
-subroutine sanitize_field(arr,val)
-! Arguments
-real, dimension(:,:),intent(inout) :: arr
-real, intent(in) :: val
-! Local variables
-integer :: i, j
-
-  do j=lbound(arr,2), ubound(arr,2)
-    do i=lbound(arr,1), ubound(arr,1)
-      if (abs(arr(i,j)).ge.val) arr(i,j)=0.
-    enddo
-  enddo
-
-end subroutine sanitize_field
-
-! ##############################################################################
-
-
-
-
-! ##############################################################################
 
 subroutine checksum_gridded(grd, label)
 ! Arguments
@@ -3405,10 +3350,6 @@ integer :: grdi, grdj
       fld(i,2) = this%lat
       fld(i,3) = this%uvel
       fld(i,4) = this%vvel
-!      fld(i,9) = this%axn !added by Alon
-!      fld(i,10) = this%ayn !added by Alon
-!      fld(i,11) = this%bxn !added by Alon
-!      fld(i,12) = this%byn !added by Alon
       fld(i,5) = this%uvel_old !added by Alon
       fld(i,6) = this%vvel_old !added by Alon
       fld(i,7) = this%lon_old !added by Alon
@@ -3501,10 +3442,6 @@ integer :: i
   rtmp(7)=part%start_day
   rtmp(8)=part%xi
   rtmp(9)=part%yj
- ! rtmp(10)=part%axn !Added by Alon
- ! rtmp(11)=part%ayn !Added by Alon
- ! rtmp(12)=part%bxn !Added by Alon
- ! rtmp(13)=part%byn !Added by Alon
   rtmp(10)=part%uvel_old !Added by Alon
   rtmp(11)=part%vvel_old !Added by Alon
   rtmp(12)=part%lat_old !Added by Alon
@@ -3602,11 +3539,6 @@ logical function unit_tests(parts)
   ! Test 64-bit ID conversion
   i = 1440*1080 ; c1 = 2**30 + 2**4 + 1
   id = id_from_2_ints(c1, i)
-  !call split_id(id,c2,j)
-  !if (j /= i .or. c2 /= c1) then
-  !  write(0,*) 'i,c in:',i,c1,' id=',id,' i,c out:',j,c2
-  !  unit_tests=.true.
-  !endif
 
 end function unit_tests
 

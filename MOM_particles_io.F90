@@ -134,13 +134,8 @@ real, allocatable, dimension(:) :: lon,          &
                                    depth,        &
                                    uvel,         &
                                    vvel,         &
-!                                   axn,          &
-!                                   ayn,          &
-!                                   bxn,          &
-!                                   byn,          &
                                    start_lon,    &
                                    start_lat,    &
-!                                   start_day
                                    dr_temp,      &
                                    dr_salt
 
@@ -150,7 +145,6 @@ integer, allocatable, dimension(:) :: ine,              &
                                       drifter_num,      &
                                       id_cnt,           &
                                       id_ij,            &
-!                                      start_year,       &
                                       first_id_cnt,     &
                                       other_id_cnt,     &
                                       first_id_ij,      &
@@ -186,19 +180,13 @@ integer :: grdi, grdj
    allocate(depth(nparts))
    allocate(uvel(nparts))
    allocate(vvel(nparts))
- !  allocate(axn(nparts))    !Alon
- !  allocate(ayn(nparts))    !Alon
- !  allocate(bxn(nparts)) !Alon
- !  allocate(byn(nparts)) !Alon
    allocate(start_lon(nparts))
    allocate(start_lat(nparts))
-!   allocate(start_day(nparts))
    allocate(dr_temp(nparts))
    allocate(dr_salt(nparts))
 
    allocate(ine(nparts))
    allocate(jne(nparts))
-!   allocate(start_year(nparts))
    allocate(drifter_num(nparts))
    allocate(id_cnt(nparts))
    allocate(id_ij(nparts))
@@ -234,16 +222,12 @@ integer :: grdi, grdj
                                             longname='longitude of starting location',units='degrees_E')
   id = register_restart_field(parts_restart,filename,'start_lat',start_lat, &
                                             longname='latitude of starting location',units='degrees_N')
-!  id = register_restart_field(parts_restart,filename,'start_year',start_year, &
-!                                            longname='calendar year of calving event', units='years')
   id = register_restart_field(parts_restart,filename,'drifter_num',drifter_num, &
                                             longname='identification of the drifter', units='dimensionless')
   id = register_restart_field(parts_restart,filename,'id_cnt',id_cnt, &
                                             longname='counter component of particle id', units='dimensionless')
   id = register_restart_field(parts_restart,filename,'id_ij',id_ij, &
                                             longname='position component of particle id', units='dimensionless')
-!  id = register_restart_field(parts_restart,filename,'start_day',start_day, &
-!                                            longname='year day of calving event',units='days')
 
   ! Write variables
 
@@ -256,10 +240,7 @@ integer :: grdi, grdj
       lon(i) = this%lon; lat(i) = this%lat; depth(i) = this%depth
       uvel(i) = this%uvel; vvel(i) = this%vvel
       ine(i) = this%ine; jne(i) = this%jne
-!      axn(i) = this%axn; ayn(i) = this%ayn !Added by Alon
-!      bxn(i) = this%bxn; byn(i) = this%byn !Added by Alon
       start_lon(i) = this%start_lon; start_lat(i) = this%start_lat
-!      start_year(i) = this%start_year; start_day(i) = this%start_day
       id_cnt(i) = this%id; drifter_num(i) = this%drifter_num !; id_ij(i) = this%id
       call split_id(this%id, id_cnt(i), id_ij(i))
       if (present(temp) .and. present(salt)) then
@@ -272,7 +253,7 @@ integer :: grdi, grdj
   enddo ; enddo
 
   call save_restart(parts_restart)
-  if (really_debug) print *, 'Finish save_restart.' ! LUYU: for debugging
+  if (really_debug) print *, 'Finish save_restart.' !for debugging
   call free_restart_type(parts_restart)
 
   deallocate(              &
@@ -281,13 +262,8 @@ integer :: grdi, grdj
              depth,        &
              uvel,         &
              vvel,         &
-!             axn,          &
-!             ayn,          &
-!             bxn,          &
-!             byn,          &
              start_lon,    &
-             start_lat)    !,    &
-!             start_day  )
+             start_lat) 
 
   deallocate(           &
              dr_temp,   &
@@ -299,17 +275,7 @@ integer :: grdi, grdj
              jne,       &
              drifter_num,       &
              id_cnt,    &
-             id_ij) !,     &
-!             start_year )
-
-!  deallocate(first_id_cnt,          &
-!             other_id_cnt,          &
-!             first_id_ij,           &
-!             other_id_ij,           &
-!             first_part_ine,        &
-!             first_part_jne,        &
-!             other_part_ine,        &
-!             other_part_jne )
+             id_ij) 
 
   call nullify_domain()
 
@@ -337,8 +303,8 @@ type(particles_gridded), pointer :: grd=>NULL()
 type(particle) :: localpart
 integer :: stderrunit, i, j, k, cnt, ij
 
-real, allocatable,dimension(:) :: lon,	&
-                                  lat,	&
+real, allocatable,dimension(:) :: lon, &
+                                  lat, &
                                   depth,  &
                                   drifter_num,  &
                                   id
@@ -360,11 +326,10 @@ integer, allocatable, dimension(:) :: id_cnt, &
   allocate(grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
   allocate(grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,grd%ke))
 
-  !LUYU: uo and vo are intialized in terms of CGRID; will convert this to BGRID in particles_run
   do k=1,grd%ke
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
-         grd%uo(i,j,k) = u(i,j,k)!0.5*(u(i,j,k)+u(i,j+1,k))
+         grd%uo(i,j,k) = u(i,j,k)
        enddo
     enddo
   enddo
@@ -372,7 +337,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
   do k=1,grd%ke
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
-         grd%vo(i,j,k) = v(i,j,k)!0.5*(v(i,j,k)+v(i+1,j,k))
+         grd%vo(i,j,k) = v(i,j,k)
        enddo
     enddo
   enddo
@@ -460,8 +425,6 @@ integer, allocatable, dimension(:) :: id_cnt, &
       localpart%halo_part=0.
       lres=pos_within_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne, localpart%xi, localpart%yj)
       localpart%k_space=.false.
-      !call find_layer(grd, depth(n), grd%hdepth, localpart%k,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
-      !call interp_flds(grd,localpart%ine,localpart%jne,localpart%xi,localpart%yj,localpart%uvel, localpart%vvel) !LUYU: we need to move this to evolve_parts.
       call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
     endif
   end do ! ln 650
@@ -557,8 +520,7 @@ logical :: io_is_in_append_mode
            call increase_ibuffer(ibuffer_io, ntrajs_rcvd_io,buffer_width_traj)
            call mpp_recv(ibuffer_io%data, ntrajs_rcvd_io*buffer_width_traj,from_pe=from_pe, tag=COMM_TAG_12)
            do i=1, ntrajs_rcvd_io
-              !call unpack_traj_from_buffer2(traj4io, ibuffer_io, i, save_short_traj)
-	      call unpack_traj_from_buffer2(traj4io, ibuffer_io, i)
+                 call unpack_traj_from_buffer2(traj4io, ibuffer_io, i)
            enddo
        endif
      enddo
@@ -633,8 +595,6 @@ logical :: io_is_in_append_mode
       if (.not.save_short_traj) then
         uvelid = inq_varid(ncid, 'uvel')
         vvelid = inq_varid(ncid, 'vvel')
-!        uoid = inq_varid(ncid, 'uo')
-!        void = inq_varid(ncid, 'vo')
       endif
     else
       ! Dimensions
@@ -654,8 +614,6 @@ logical :: io_is_in_append_mode
       if (.not. save_short_traj) then
         uvelid = def_var(ncid, 'uvel', NF_DOUBLE, i_dim)
         vvelid = def_var(ncid, 'vvel', NF_DOUBLE, i_dim)
-!        uoid = def_var(ncid, 'uo', NF_DOUBLE, i_dim)
-!        void = def_var(ncid, 'vo', NF_DOUBLE, i_dim)
       endif
       ! Attributes
       iret = nf_put_att_int(ncid, NCGLOBAL, 'file_format_major_version', NF_INT, 1, 0)
@@ -678,17 +636,12 @@ logical :: io_is_in_append_mode
       call put_att(ncid, idcntid, 'units', 'dimensionless')
       call put_att(ncid, idijid, 'long_name', 'position component of particle id')
       call put_att(ncid, idijid, 'units', 'dimensionless')
-!      call put_att(ncid, partnumid, 'units', 'dimensionless')
 
       if (.not. save_short_traj) then
         call put_att(ncid, uvelid, 'long_name', 'zonal spped')
         call put_att(ncid, uvelid, 'units', 'm/s')
         call put_att(ncid, vvelid, 'long_name', 'meridional spped')
         call put_att(ncid, vvelid, 'units', 'm/s')
-!        call put_att(ncid, uoid, 'long_name', 'ocean zonal spped')
-!        call put_att(ncid, uoid, 'units', 'm/s')
-!        call put_att(ncid, void, 'long_name', 'ocean meridional spped')
-!        call put_att(ncid, void, 'units', 'm/s')
       endif
     endif
 
@@ -709,7 +662,6 @@ logical :: io_is_in_append_mode
       call put_double(ncid, latid, i, this%lat)
       call put_double(ncid, kid, i, this%k)
       call put_double(ncid, depthid, i, this%depth)
-!      print *,'this%year: ',this%year
       call put_int(ncid, yearid, i, this%year)
       call put_double(ncid, dayid, i, this%day)
       call put_int(ncid, drnumid, i, this%particle_num)
@@ -719,8 +671,6 @@ logical :: io_is_in_append_mode
       if (.not. save_short_traj) then
         call put_double(ncid, uvelid, i, this%uvel)
         call put_double(ncid, vvelid, i, this%vvel)
-!        call put_double(ncid, uoid, i, this%uo)
-!        call put_double(ncid, void, i, this%vo)
       endif
       next=>this%next
       deallocate(this)
@@ -737,12 +687,6 @@ logical :: io_is_in_append_mode
 
 this=>trajectory
 
-!do while (.true.)
-!
-!  print *,'traj lon,lat,day= ',this%lon,this%lat,this%day
-!  this=>this%next
-!  if (.not. associated(this)) exit
-!end do
 
 end subroutine write_trajectory
 

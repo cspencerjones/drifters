@@ -221,7 +221,6 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
        'diamonds: y,m,d=',iyr, imon, iday,' h,m,s=', ihr, imin, isec, &
        ' yr,yrdy=', parts%current_year, parts%current_yearday
 
- !call sanitize_field(grd%calving,1.e20)
 
  ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
