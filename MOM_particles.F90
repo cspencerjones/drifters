@@ -29,6 +29,7 @@ use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, 
 use MOM_particles_framework, only: verbose, really_debug,debug,use_roundoff_fix
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell
 use MOM_particles_framework, only: bilin,yearday,count_parts,parts_chksum
+use MOM_particles_framework, only: linlinx,linliny
 use MOM_particles_framework, only: checksum_gridded,add_new_part_to_list
 use MOM_particles_framework, only: send_parts_to_other_pes,move_trajectory,move_all_trajectories
 use MOM_particles_framework, only: record_posn,check_position,print_part,print_parts,print_fld
@@ -121,7 +122,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     jv=j
  endif
- uo=bilin(grd, grd%uo(grd%isd:,:,kint), i+1, jv, xi, yjv)
+ uo=linlinx(grd, grd%uo(grd%isd:,:,kint), i+1, jv, xi, yjv)
 
  xiu = xi+0.5
  if (xiu>1) then
@@ -130,7 +131,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     iu=i
  endif
- vo=bilin(grd, grd%vo(:,grd%jsd:,kint), iu, j+1, xiu, yj)
+ vo=linliny(grd, grd%vo(:,grd%jsd:,kint), iu, j+1, xiu, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)

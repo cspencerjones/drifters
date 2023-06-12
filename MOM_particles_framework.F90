@@ -70,6 +70,7 @@ public move_trajectory, move_all_trajectories
 public find_cell, find_cell_by_search, count_parts, is_point_in_cell, pos_within_cell
 public find_layer, find_depth
 public bilin, yearday, parts_chksum, list_chksum, count_parts_in_list
+public linlinx, linliny
 public checksum_gridded
 public grd_chksum2,grd_chksum3
 public fix_restart_dates, offset_part_dates
@@ -3038,7 +3039,8 @@ endif
 
 
 do klev=1,grd%ke
-    hdepth1D(klev) = bilin(grd, hdepth(:,:,klev), ine, jne, xi, yj)
+!    hdepth1D(klev) = bilin(grd, hdepth(:,:,klev), ine, jne, xi, yj)
+     hdepth1D(klev) = hdepth(ine,jne,klev)
     if (klev.eq.1)then
         hdepth1Dcum(klev) =hdepth1D(klev)
     else
@@ -3113,7 +3115,8 @@ endif
 
 
 do klev=1,grd%ke
-    hdepth1D(klev) = bilin(grd, h(:,:,klev), ine, jne, xi, yj)
+!    hdepth1D(klev) = bilin(grd, h(:,:,klev), ine, jne, xi, yj)
+    hdepth1D(klev) = h(ine,jne,klev)
 enddo
 
 k_space=.false.
@@ -3477,6 +3480,32 @@ integer, intent(in) :: i, j
          +(fld(i,j-1)*xi+fld(i-1,j-1)*(1.-xi))*(1.-yj)
 
 end function bilin
+
+! #############################################################################
+
+real function linlinx(grd,fld,i,j,xi,yj)
+! Arguments
+type(particles_gridded), pointer :: grd
+real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+integer, intent(in) :: i, j
+! Local variables
+
+    linlinx = fld(i,j  )*xi + fld(i-1,j)*(1-xi)
+
+end function linlinx
+
+
+real function linliny(grd,fld,i,j,xi,yj)
+! Arguments
+type(particles_gridded), pointer :: grd
+real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+integer, intent(in) :: i, j
+! Local variables
+
+    linliny = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
+
+end function linliny
+
 
 ! ##############################################################################
 
