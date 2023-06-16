@@ -86,6 +86,7 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
  write(stdlogunit,*) "particles: "//trim(version)
 
  call particles_framework_init(parts, Grid, Time, dt)
+ call particles_to_z_space(parts,h)
  call mpp_clock_begin(parts%clock_ior)
  call particles_io_init(parts,Grid%Domain%io_layout)
  call read_restart_parts(parts,Time, u, v,h)

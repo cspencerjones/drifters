@@ -513,12 +513,14 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
     lgenerate = .false.
     if (generate_days>0) then
       if ( mod(365*(iyr-1)+iday-1, generate_days)==0 ) lgenerate = .true.
-    elseif (generate_days==0 .and. 365*(iyr-1)+iday-1==0) then
+    elseif (generate_days==0) then ! .and. 365*(iyr-1)+iday-1==0) then
       lgenerate = .true.
     endif
-    if (lgenerate) call generate_grid_of_particles(parts, &
+    if (lgenerate) then 
+       call generate_grid_of_particles(parts, &
                           generate_lons(1), generate_lons(2), generate_lons(3), &
                           generate_lats(1), generate_lats(2), generate_lats(3))
+    endif
   endif
 
   call mpp_clock_end(parts%clock_ini)
@@ -553,7 +555,9 @@ logical :: lres
 
   ie = int( (lon_end-lon_start)/dlon + 0.5 )
   je = int( (lat_end-lat_start)/dlat + 0.5 )
-
+  !CSJ hard-coded this for now
+  localpart%k_space=.true.
+  localpart%k=0.5
   do j =  0,je
     localpart%lat = lat_start + dlat*float(j)
     if (localpart%lat >= lat_min .and. localpart%lat <= lat_max) then
@@ -561,9 +565,19 @@ logical :: lres
         localpart%lon = lon_start + dlon*float(i)
         lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
         if (lres) then
-          if (grd%msk(localpart%ine,localpart%jne)>0.) then
+          if (grd%msk(localpart%ine,localpart%jne)>-1.) then
             localpart%id = generate_id(grd, localpart%ine, localpart%jne)
+            lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
+            if (really_debug) then
+               write(stderrunit,'(a,5f9.4,a,i8)') 'particles, init grid of parts',&
+                    localpart%lon,localpart%lat,localpart%k,localpart%xi,localpart%yj,&
+                    ' on PE ',mpp_pe()
+            endif
             call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
+          else
+              write(stderrunit,'(a,5f9.4,a,i8)') 'particles, parts did not make it',&
+                    localpart%lon,localpart%lat,localpart%k,localpart%xi,localpart%yj,&
+                    ' on PE ',mpp_pe()
           endif
         endif
       enddo
@@ -1430,6 +1444,8 @@ logical :: quick
        !  & mpp_pe(),' from lon,lat=',localpart%lon,localpart%lat
        localpart%lon=localpart%lon-22.0
        ! write(stderrunit,*) localpart%lon,localpart%lat
+  elseif (localpart%lon<0.0) then
+       localpart%lon=localpart%lon+22.0
   endif
 
 
