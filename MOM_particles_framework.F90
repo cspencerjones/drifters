@@ -254,7 +254,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   real :: Lx=360. ! Length of domain in x direction, used for periodicity (use a huge number for non-periodic)
   logical :: Runge_not_Verlet=.True. ! True=Runge Kutta, False=Verlet.
   logical :: grid_is_latlon=.True. ! True means that the grid is specified in lat lon, and uses to radius of the earth to convert to distance
-  logical :: grid_is_regular=.True. ! Flag to say whether point in cell can be found assuming regular Cartesian grid
+  logical :: grid_is_regular=.False. ! Flag to say whether point in cell can be found assuming regular Cartesian grid
   logical :: ignore_missing_restart_parts=.False. ! True Allows the model to ignore particles missing in the restart.
   logical :: halo_debugging=.False. ! Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. ! True saves only lon,lat,time,id in particle_trajectory.nc
@@ -372,7 +372,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
   grd%ocean_depth(is:ie,js:je) = Grid%bathyT(is:ie,js:je)
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-  grd%dx(is:ie,js:je)=Grid%dxBu(is:ie,js:je)
+  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:je)
   grd%dy(is:ie,js:je)=Grid%dyBu(is:ie,js:je)
   grd%msk(is:ie,js:je)=Grid%mask2dBu(is:ie,js:je)
   grd%cos(is:ie,js:je)=Grid%cos_rot(is:ie,js:je)
@@ -380,13 +380,15 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
 
   call mpp_update_domains(grd%lon, grd%domain)
   call mpp_update_domains(grd%lat, grd%domain)
-  call mpp_update_domains(grd%dy, grd%dx, grd%domain, gridtype=BGRID_NE, flags=SCALAR_PAIR)
+  call mpp_update_domains(grd%dy, grd%dx, grd%domain, gridtype=CGRID_NE, flags=SCALAR_PAIR)
   call mpp_update_domains(grd%area, grd%domain)
   call mpp_update_domains(grd%msk, grd%domain)
   call mpp_update_domains(grd%cos, grd%domain, position=CENTER)
   call mpp_update_domains(grd%sin, grd%domain, position=CENTER)
   call mpp_update_domains(grd%ocean_depth, grd%domain)
   call mpp_update_domains(grd%parity_x, grd%parity_y, grd%domain, gridtype=AGRID) ! If either parity_x/y is -ve, we need rotation of vectors
+
+
 
   ! Sanitize lon and lat in the southern halo
   do j=grd%jsc-1,grd%jsd,-1; do i=grd%isd,grd%ied
@@ -568,16 +570,7 @@ logical :: lres
           if (grd%msk(localpart%ine,localpart%jne)>-1.) then
             localpart%id = generate_id(grd, localpart%ine, localpart%jne)
             lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
-            if (really_debug) then
-               write(stderrunit,'(a,5f9.4,a,i8)') 'particles, init grid of parts',&
-                    localpart%lon,localpart%lat,localpart%k,localpart%xi,localpart%yj,&
-                    ' on PE ',mpp_pe()
-            endif
             call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
-          else
-              write(stderrunit,'(a,5f9.4,a,i8)') 'particles, parts did not make it',&
-                    localpart%lon,localpart%lat,localpart%k,localpart%xi,localpart%yj,&
-                    ' on PE ',mpp_pe()
           endif
         endif
       enddo

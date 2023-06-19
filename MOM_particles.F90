@@ -444,6 +444,7 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   real :: x4, xdot4, xddot4, y4, ydot4, yddot4, xddot4n, yddot4n
   real :: xn, xdotn, xddotn, yn, ydotn, yddotn, xddotnn, yddotnn
   real :: dt, dt_2, dt_6, dydl
+  real :: reg_dldx
   integer :: i1,j1,i2,j2,i3,j3,i4,j4
   integer :: stderrunit
   logical :: bounced, on_tangential_plane, error_flag
@@ -480,11 +481,13 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   i1=i;j1=j
 
 
+  reg_dldx=min(abs(grd%lon(i+1,j)-grd%lon(i,j)),abs(grd%lon(i,j)-grd%lon(i-1,j)))/grd%dx(i,j)
+
   ! A1 = A(X1)
   lon1=part%lon; lat1=part%lat
   if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
 
-  call  convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon ,dxdl1,dydl)
+  call  convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
   !dxdl1=r180_pi/(Rearth*cos(lat1*pi_180))
   !dydl=r180_pi/Rearth
   uvel1=part%uvel; vvel1=part%vvel
@@ -508,7 +511,7 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   if (.not.error_flag) then
     if (debug .and. .not. is_point_in_cell(parts%grd, lon2, lat2, i, j)) error_flag=.true.
   endif
-  call  convert_from_meters_to_grid(lat2,parts%grd%grid_is_latlon ,dxdl2,dydl)
+  call  convert_from_meters_to_grid(lat2,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl2,dydl,reg_dldx)
   !dxdl2=r180_pi/(Rearth*cos(lat2*pi_180))
   u2=uvel2*dxdl2; v2=vvel2*dydl
 
@@ -526,7 +529,7 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   call adjust_index_and_ground(grd, lon3, lat3, uvel3, vvel3, i, j, xi, yj, bounced, error_flag, part%id)
   i3=i; j3=j
   ! if (bounced.and.on_tangential_plane) call rotpos_to_tang(lon3,lat3,x3,y3)
-  call  convert_from_meters_to_grid(lat3,parts%grd%grid_is_latlon ,dxdl3,dydl)
+  call  convert_from_meters_to_grid(lat3,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl3,dydl,reg_dldx)
   !dxdl3=r180_pi/(Rearth*cos(lat3*pi_180))
   u3=uvel3*dxdl3; v3=vvel3*dydl
 
@@ -543,7 +546,7 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lon4, lat4, uvel4, vvel4, i, j, xi, yj, bounced, error_flag, part%id)
   i4=i; j4=j
-  call  convert_from_meters_to_grid(lat4,parts%grd%grid_is_latlon ,dxdl4,dydl)
+  call  convert_from_meters_to_grid(lat4,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl4,dydl,reg_dldx)
   !dxdl4=r180_pi/(Rearth*cos(lat4*pi_180))
   u4=uvel4*dxdl4; v4=vvel4*dydl
 
@@ -663,15 +666,21 @@ end subroutine rotvec_to_tang
 
 ! ####################################################################################
 !> Returns metric converting distance in meters to grid distance
-subroutine  convert_from_meters_to_grid(lat_ref,grid_is_latlon ,dlon_dx,dlat_dy)
+subroutine  convert_from_meters_to_grid(lat_ref,grid_is_latlon,grid_is_regular,dlon_dx,dlat_dy,reg_dlon_dx)
   ! Arguments
   real, intent(in) :: lat_ref !< Latitude at which to make metric conversion (degree N)
   logical, intent(in) :: grid_is_latlon !< True if grid model grid is in lat-lon coordinates
+  logical, intent(in) :: grid_is_regular !<True if grid is cartesian
   real, intent(out) :: dlon_dx !< Metric dlon/dx
   real, intent(out) :: dlat_dy !< Metric dlat/dy
+  real, intent(in), optional :: reg_dlon_dx !<dx used if the grid is cartesian
 
   if (grid_is_latlon) then
-    dlon_dx=(180./pi)/(Rearth*cos((lat_ref)*(pi/180.)))
+    if (grid_is_regular) then
+       dlon_dx=reg_dlon_dx
+    else
+       dlon_dx=(180./pi)/(Rearth*cos((lat_ref)*(pi/180.)))
+    endif
     dlat_dy=(180./pi)/Rearth
   else
     dlon_dx=1.
@@ -682,15 +691,21 @@ end subroutine convert_from_meters_to_grid
 
 ! ###################################################################################
 !> Returns metric converting grid distances to meters
-subroutine convert_from_grid_to_meters(lat_ref, grid_is_latlon, dx_dlon, dy_dlat)
+subroutine convert_from_grid_to_meters(lat_ref, grid_is_latlon, grid_is_regular, dx_dlon, dy_dlat,reg_dlon_dx)
   ! Arguments
   real, intent(in) :: lat_ref !< Latitude at which to make metric conversion (degree N)
   logical, intent(in) :: grid_is_latlon !< True if grid model grid is in lat-lon coordinates
+  logical, intent(in) :: grid_is_regular !<True if grid is cartesian
   real, intent(out) :: dx_dlon !< Metric dx/dlon
   real, intent(out) :: dy_dlat !< Metric dy/dlat
+  real, intent(in), optional :: reg_dlon_dx !<dx used if the grid is cartesian
 
   if (grid_is_latlon) then
-    dx_dlon=(pi/180.)*Rearth*cos((lat_ref)*(pi/180.))
+    if (grid_is_regular) then
+       dx_dlon=1./reg_dlon_dx
+    else
+       dx_dlon=(pi/180.)*Rearth*cos((lat_ref)*(pi/180.))
+    endif
     dy_dlat=(pi/180.)*Rearth
   else
     dx_dlon=1.
