@@ -123,7 +123,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     jv=j
  endif
- uo=linlinx(grd, grd%uo(grd%isd:,:,kint), i+1, jv, xi, yjv)
+ uo=linlinx(grd, grd%uo(grd%isd:,:,kint), i+1, j, xi, yj)
 
  xiu = xi+0.5
  if (xiu>1) then
@@ -132,7 +132,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     iu=i
  endif
- vo=linliny(grd, grd%vo(:,grd%jsd:,kint), iu, j+1, xiu, yj)
+ vo=linliny(grd, grd%vo(:,grd%jsd:,kint), i, j+1, xi, yj)
 
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
