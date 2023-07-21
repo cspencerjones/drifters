@@ -22,7 +22,9 @@ use mpp_mod,    only : mpp_clock_begin, mpp_clock_end, mpp_clock_id
 use mpp_mod,    only : CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_LOOP
 use fms_mod,    only : clock_flag_default
 
-use time_manager_mod, only: time_type, get_date, get_time, set_date, operator(-)
+use time_manager_mod, only: time_type, get_time, set_date, operator(-)
+use MOM_time_manager,  only : time_type_to_real, real_to_time, get_ticks_per_second
+use MOM_time_manager,  only : get_date
 
 use MOM_grid, only : ocean_grid_type
 
@@ -110,11 +112,12 @@ end subroutine particles_io_init
 ! ##############################################################################
 
 !> Write an particle restart file
-subroutine write_restart(parts,h,temp,salt)
+subroutine write_restart(parts, h, time, stamp)
 ! Arguments
 type(particles), pointer :: parts !< particles container
 real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
-real,dimension(:,:,:),optional,intent(in) :: temp, salt
+type(time_type),          intent(in)    :: time       !< The current model time
+logical,  intent(in) , optional   :: stamp !< If present and true, add time-stamp
 ! Local variables
 !type(bond), pointer :: current_bond
 integer :: i,j,id
@@ -128,6 +131,7 @@ type(restart_file_type) :: parts_bond_restart
 integer :: nparts, nbonds
 integer :: n_static_parts
 logical :: check_bond_quality
+character(len=40) :: restart_time
 type(particles_gridded), pointer :: grd
 real, allocatable, dimension(:) :: lon,          &
                                    lat,          &
@@ -135,9 +139,7 @@ real, allocatable, dimension(:) :: lon,          &
                                    uvel,         &
                                    vvel,         &
                                    start_lon,    &
-                                   start_lat,    &
-                                   dr_temp,      &
-                                   dr_salt
+                                   start_lat
 
 
 integer, allocatable, dimension(:) :: ine,              &
@@ -182,8 +184,6 @@ integer :: grdi, grdj
    allocate(vvel(nparts))
    allocate(start_lon(nparts))
    allocate(start_lat(nparts))
-   allocate(dr_temp(nparts))
-   allocate(dr_salt(nparts))
 
    allocate(ine(nparts))
    allocate(jne(nparts))
@@ -211,11 +211,6 @@ integer :: grdi, grdj
   id = register_restart_field(parts_restart,filename,'depth',depth,longname='depth below surface',units='m')
   id = register_restart_field(parts_restart,filename,'uvel',uvel,longname='zonal velocity',units='m/s')
   id = register_restart_field(parts_restart,filename,'vvel',vvel,longname='meridional velocity',units='m/s')
-
-  if (present(temp) .and. present(salt)) then
-    id = register_restart_field(parts_restart,filename,'temp',dr_temp,longname='Potential Temperature',units='degC')
-    id = register_restart_field(parts_restart,filename,'salt',dr_salt,longname='Salinity',units='PPT')
-  endif
   id = register_restart_field(parts_restart,filename,'ine',ine,longname='i index',units='none')
   id = register_restart_field(parts_restart,filename,'jne',jne,longname='j index',units='none')
   id = register_restart_field(parts_restart,filename,'start_lon',start_lon, &
@@ -243,16 +238,15 @@ integer :: grdi, grdj
       start_lon(i) = this%start_lon; start_lat(i) = this%start_lat
       id_cnt(i) = this%id; drifter_num(i) = this%drifter_num !; id_ij(i) = this%id
       call split_id(this%id, id_cnt(i), id_ij(i))
-      if (present(temp) .and. present(salt)) then
-        !LUYU: pass the ocean temp and ocean salt at the surface layer to drifters
-        dr_temp(i)=bilin(grd,temp(grd%isd:grd%ied,grd%jsd:grd%jed,1),this%ine,this%jne,this%xi,this%yj)
-        dr_salt(i)=bilin(grd,salt(grd%isd:grd%ied,grd%jsd:grd%jed,1),this%ine,this%jne,this%xi,this%yj)
-      endif
       this=>this%next
     enddo
   enddo ; enddo
-
-  call save_restart(parts_restart)
+  if (present(stamp)) then
+    restart_time = convert_date_to_string(time)
+    call save_restart(parts_restart, restart_time)
+  else
+    call save_restart(parts_restart)
+  endif
   if (really_debug) print *, 'Finish save_restart.' !for debugging
   call free_restart_type(parts_restart)
 
@@ -265,10 +259,6 @@ integer :: grdi, grdj
              start_lon,    &
              start_lat) 
 
-  deallocate(           &
-             dr_temp,   &
-             dr_salt)
-
 
   deallocate(           &
              ine,       &
@@ -280,6 +270,39 @@ integer :: grdi, grdj
   call nullify_domain()
 
 end subroutine write_restart
+
+
+
+!> This function converts a date into a string, valid with ticks and for dates
+!up to year 99,999,999
+character(len=40) function convert_date_to_string(date)
+  type(time_type), intent(in) :: date !< The date to be translated into a string.
+  
+  ! Local variables
+  character(len=40) :: sub_string
+  real    :: real_secs
+  integer :: yrs, mons, days, hours, mins, secs, ticks, ticks_per_sec
+  character(len=40)    :: date_string
+
+  call get_date(date, yrs, mons, days, hours, mins, secs, ticks)
+  write (date_string, '(i8.4)') yrs
+  write (sub_string, '("-", i2.2, "-", I2.2, ".", i2.2, ":", i2.2, ":")') &
+         mons, days, hours, mins
+  date_string = trim(adjustl(date_string)) // trim(sub_string)
+  if (ticks > 0) then
+    ticks_per_sec = get_ticks_per_second()
+    real_secs = secs + ticks/ticks_per_sec
+    if (ticks_per_sec <= 100) then
+      write (sub_string, '(F7.3)') real_secs
+    else
+      write (sub_string, '(F10.6)') real_secs
+    endif
+  else
+    write (sub_string, '(i2.2)') secs
+  endif
+  convert_date_to_string = trim(date_string) // trim(adjustl(sub_string))
+
+end function convert_date_to_string
 
 ! ##############################################################################
 

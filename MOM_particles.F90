@@ -963,22 +963,19 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
 
 ! ###################################################################################
 
-subroutine particles_save_restart(parts, h, temp,salt)
+subroutine particles_save_restart(parts, h, time, stamp)
 ! Arguments
 type(particles), pointer :: parts
-real,dimension(:,:,:),optional,intent(in) :: temp, salt
-real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+type(time_type),          intent(in)    :: time       !< The current model time
+logical, optional, intent(in)    :: stamp !< If present and true, add time-stamp
+real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
 
 
 
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   !call parts_chksum(parts, 'write_restart parts')
-  if (present(temp) .and. present(salt)) then
-    call write_restart(parts,h,temp,salt)
-  else
-    call write_restart(parts,h)
-  endif
+  call write_restart(parts,h,time,stamp)
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart
