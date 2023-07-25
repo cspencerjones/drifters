@@ -90,7 +90,7 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
  call mpp_clock_begin(parts%clock_ior)
  call particles_io_init(parts,Grid%Domain%io_layout)
  call read_restart_parts(parts,Time, u, v,h)
-! call parts_chksum(parts, 'read_restart_particles')
+ call parts_chksum(parts, 'read_restart_particles')
  call mpp_clock_end(parts%clock_ior)
 
  if (really_debug) call print_parts(stderrunit,parts,'particles_init, initial status')
@@ -227,8 +227,8 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
  ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
 
-     grd%uo(:,:,:) = uo(:,:,:)
-     grd%vo(:,:,:) = vo(:,:,:)
+     grd%uo(:,:,:) = 0.0*uo(:,:,:)
+     grd%vo(:,:,:) = 0.0*vo(:,:,:)
 
 !     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
      !0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))

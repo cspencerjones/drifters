@@ -3344,8 +3344,8 @@ integer :: grdi, grdj
   nparts=count_parts(parts)
   call mpp_max(nparts)
   nparts = max(nparts, 1)
-  allocate( fld( nparts, 19 ) ) !Changed from 11 to 19 by Alon
-  allocate( fld2( nparts, 19 ) ) !Changed from 11 to 19 by Alon
+  allocate( fld( nparts, 2 ) ) !Changed from 11 to 19 by Alon
+  allocate( fld2( nparts, 2 ) ) !Changed from 11 to 19 by Alon
   allocate( icnt( grd%isd:grd%ied, grd%jsd:grd%jed ) )
   fld(:,:)=0.
   fld2(:,:)=0.
@@ -3360,15 +3360,15 @@ integer :: grdi, grdj
       ipart=part_chksum(this)
       fld(i,1) = this%lon
       fld(i,2) = this%lat
-      fld(i,3) = this%uvel
-      fld(i,4) = this%vvel
-      fld(i,5) = this%uvel_old !added by Alon
-      fld(i,6) = this%vvel_old !added by Alon
-      fld(i,7) = this%lon_old !added by Alon
-      fld(i,8) = this%lat_old !added by Alon
+!      fld(i,3) = this%uvel
+!      fld(i,4) = this%vvel
+!      fld(i,5) = this%uvel_old !added by Alon
+!      fld(i,6) = this%vvel_old !added by Alon
+!      fld(i,7) = this%lon_old !added by Alon
+!      fld(i,8) = this%lat_old !added by Alon
 !      fld(i,17) = time_hash(this) !Changed from 9 to 17 by Alon
 !      fld(i,18) = pos_hash(this) !Changed from 10 to 18 by Alon
-      fld(i,19) = float(ipart) !Changed from 11 to 19 by Alon
+!      fld(i,19) = float(ipart) !Changed from 11 to 19 by Alon
       icnt(this%ine,this%jne)=icnt(this%ine,this%jne)+1
       fld2(i,:) = fld(i,:)*float( icnt(this%ine,this%jne) ) !*float( i )
       grd%tmp(this%ine,this%jne)=grd%tmp(this%ine,this%jne)+time_hash(this)*pos_hash(this)!+log(this%mass) !LUYU: we assume zero mass for now.
