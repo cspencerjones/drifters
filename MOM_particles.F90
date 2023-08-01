@@ -227,8 +227,8 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
  ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
 
-     grd%uo(:,:,:) = 0.0*uo(:,:,:)
-     grd%vo(:,:,:) = 0.0*vo(:,:,:)
+     grd%uo(:,:,:) = uo(:,:,:)
+     grd%vo(:,:,:) = vo(:,:,:)
 
 !     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
      !0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
@@ -974,7 +974,7 @@ real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
 
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
-  !call parts_chksum(parts, 'write_restart parts')
+  call parts_chksum(parts, 'write_restart parts')
   call write_restart(parts,h,time,stamp)
   call mpp_clock_end(parts%clock_iow)
 

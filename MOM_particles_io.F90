@@ -330,7 +330,9 @@ real, allocatable,dimension(:) :: lon, &
                                   lat, &
                                   depth,  &
                                   drifter_num,  &
-                                  id
+                                  id, &
+                                  start_lon, &
+                                  start_lat
 integer, allocatable, dimension(:) :: id_cnt, &
                                       id_ij
   ! Get the stderr unit number
@@ -392,6 +394,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
     replace_drifter_num = field_exist(filename, 'drifter_num') ! True if using a 32-bit drifter_num in restart file
     allocate(lon(nparts_in_file))
     allocate(lat(nparts_in_file))
+    allocate(start_lon(nparts_in_file))
+    allocate(start_lat(nparts_in_file))
     allocate(depth(nparts_in_file))
     if (replace_drifter_num) then
       allocate(id(nparts_in_file))
@@ -403,6 +407,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
 
     call read_unlimited_axis(filename,'lon',lon,domain=grd%domain)
     call read_unlimited_axis(filename,'lat',lat,domain=grd%domain)
+    call read_unlimited_axis(filename,'start_lon',start_lon,domain=grd%domain)
+    call read_unlimited_axis(filename,'start_lat',start_lat,domain=grd%domain)
     call read_unlimited_axis(filename,'depth',depth,domain=grd%domain)
     if (replace_drifter_num) then
       call read_unlimited_axis(filename,'drifter_num',id,domain=grd%domain)
@@ -437,8 +443,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
     endif
 
     if (lres) then ! True if the particle resides on the current processors computational grid
-      localpart%start_lon=lon(n)
-      localpart%start_lat=lat(n)
+      localpart%start_lon=start_lon(n)
+      localpart%start_lat=start_lat(n)
       if (replace_drifter_num) then
         localpart%id = generate_id(grd, localpart%ine, localpart%jne)
         localpart%drifter_num = drifter_num(n)
@@ -455,7 +461,9 @@ integer, allocatable, dimension(:) :: id_cnt, &
   if (found_restart) then
     deallocate(lon,          &
                lat,          &
-               depth)
+               depth,        &
+               start_lon,    &
+               start_lat)
     if (replace_drifter_num) then
       deallocate(id)
       deallocate(drifter_num)
