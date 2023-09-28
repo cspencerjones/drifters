@@ -139,7 +139,8 @@ real, allocatable, dimension(:) :: lon,          &
                                    uvel,         &
                                    vvel,         &
                                    start_lon,    &
-                                   start_lat
+                                   start_lat,    &
+                                   start_d
 
 
 integer, allocatable, dimension(:) :: ine,              &
@@ -184,6 +185,7 @@ integer :: grdi, grdj
    allocate(vvel(nparts))
    allocate(start_lon(nparts))
    allocate(start_lat(nparts))
+   allocate(start_d(nparts))
 
    allocate(ine(nparts))
    allocate(jne(nparts))
@@ -217,6 +219,8 @@ integer :: grdi, grdj
                                             longname='longitude of starting location',units='degrees_E')
   id = register_restart_field(parts_restart,filename,'start_lat',start_lat, &
                                             longname='latitude of starting location',units='degrees_N')
+  id = register_restart_field(parts_restart,filename,'start_d',start_d, &
+                                            longname='depth of starting location',units='m')
   id = register_restart_field(parts_restart,filename,'drifter_num',drifter_num, &
                                             longname='identification of the drifter', units='dimensionless')
   id = register_restart_field(parts_restart,filename,'id_cnt',id_cnt, &
@@ -236,6 +240,7 @@ integer :: grdi, grdj
       uvel(i) = this%uvel; vvel(i) = this%vvel
       ine(i) = this%ine; jne(i) = this%jne
       start_lon(i) = this%start_lon; start_lat(i) = this%start_lat
+      start_d(i) = this%depth
       id_cnt(i) = this%id; drifter_num(i) = this%drifter_num !; id_ij(i) = this%id
       call split_id(this%id, id_cnt(i), id_ij(i))
       this=>this%next
@@ -257,7 +262,8 @@ integer :: grdi, grdj
              uvel,         &
              vvel,         &
              start_lon,    &
-             start_lat) 
+             start_lat,    &
+             start_d) 
 
 
   deallocate(           &
@@ -332,7 +338,8 @@ real, allocatable,dimension(:) :: lon, &
                                   drifter_num,  &
                                   id, &
                                   start_lon, &
-                                  start_lat
+                                  start_lat, &
+                                  start_d
 integer, allocatable, dimension(:) :: id_cnt, &
                                       id_ij
   ! Get the stderr unit number
@@ -396,6 +403,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
     allocate(lat(nparts_in_file))
     allocate(start_lon(nparts_in_file))
     allocate(start_lat(nparts_in_file))
+    allocate(start_d(nparts_in_file))
     allocate(depth(nparts_in_file))
     if (replace_drifter_num) then
       allocate(id(nparts_in_file))
@@ -409,6 +417,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
     call read_unlimited_axis(filename,'lat',lat,domain=grd%domain)
     call read_unlimited_axis(filename,'start_lon',start_lon,domain=grd%domain)
     call read_unlimited_axis(filename,'start_lat',start_lat,domain=grd%domain)
+    call read_unlimited_axis(filename,'start_d',start_d,domain=grd%domain)
     call read_unlimited_axis(filename,'depth',depth,domain=grd%domain)
     if (replace_drifter_num) then
       call read_unlimited_axis(filename,'drifter_num',id,domain=grd%domain)
@@ -445,6 +454,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
     if (lres) then ! True if the particle resides on the current processors computational grid
       localpart%start_lon=start_lon(n)
       localpart%start_lat=start_lat(n)
+      localpart%start_d=start_d(n)
       if (replace_drifter_num) then
         localpart%id = generate_id(grd, localpart%ine, localpart%jne)
         localpart%drifter_num = drifter_num(n)
@@ -463,7 +473,8 @@ integer, allocatable, dimension(:) :: id_cnt, &
                lat,          &
                depth,        &
                start_lon,    &
-               start_lat)
+               start_lat,    &
+               start_d)
     if (replace_drifter_num) then
       deallocate(id)
       deallocate(drifter_num)

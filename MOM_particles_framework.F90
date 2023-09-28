@@ -157,7 +157,7 @@ type :: particle
   real :: lon, lat, depth, uvel, vvel !< position (degrees) and zonal and meridional velocities (m/s)
   real :: lon_old, lat_old, uvel_old, vvel_old  !< previous position (degrees) and zonal
                                                 !< and meridional velocities (m/s)
-  real :: start_lon, start_lat, start_day       !< origination position (degrees) and day
+  real :: start_lon, start_lat, start_d, start_day       !< origination position (degrees) and day
   integer :: start_year                         !< origination year
   real :: halo_part  !< equal to zero for particles on the computational domain, and 1 for particles on the halo
   integer(kind=8) :: id,drifter_num             !< particle identifier
@@ -267,6 +267,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   integer :: generate_days=-1 ! If positive, is the period in days between generation of new particles on a grid. If 0, generate once. Negative do nothing.
   real :: generate_lons(3) ! Start,end and delta longitude, if generating particles
   real :: generate_lats(3) ! Start,end and delta longitude, if generating particles
+  real :: generate_d(3) ! Start, end and delta depth if positive. Start end and delta k if negative
 
   namelist /particles_nml/ verbose, halo,  traj_sample_hrs, traj_write_hrs, save_short_traj,  &
          verbose_hrs,  &
@@ -276,7 +277,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          restart_input_dir, old_bug_bilin,do_unit_tests, force_all_pes_traj, &
          grid_is_latlon,Lx, &
          grid_is_regular, &
-         generate_days, generate_lons, generate_lats, &
+         generate_days, generate_lons, generate_lats, generate_d, &
          ignore_traj, debug_particle_with_id, read_old_restarts
 
   ! Local variables
@@ -521,7 +522,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
     if (lgenerate) then 
        call generate_grid_of_particles(parts, &
                           generate_lons(1), generate_lons(2), generate_lons(3), &
-                          generate_lats(1), generate_lats(2), generate_lats(3))
+                          generate_lats(1), generate_lats(2), generate_lats(3), &                         generate_d(1), generate_d(2), generate_d(3))
     endif
   endif
 
@@ -531,7 +532,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
 end subroutine particles_framework_init
 
 !> Generate particles on a grid
-subroutine generate_grid_of_particles(parts, lon_start, lon_end, dlon, lat_start, lat_end, dlat)
+subroutine generate_grid_of_particles(parts, lon_start, lon_end, dlon, lat_start, lat_end, dlat,d_start,d_end,dd)
 ! Arguments
 type(particles), pointer :: parts !< Container for all types and memory
 real, intent(in) :: lon_start !< Start longitude of grid of particles
@@ -540,10 +541,14 @@ real, intent(in) :: dlon !< Separation longitude of particles on grid
 real, intent(in) :: lat_start !< Start latitude of grid of particles
 real, intent(in) :: lat_end !< End latitude of grid of particles
 real, intent(in) :: dlat !< Separation latitude of particles on grid
+real, intent(in) :: d_start !< Start depth of grid of particles
+real, intent(in) :: d_end !< End depth of grid of particles
+real, intent(in) :: dd !< Separation depth of particles on grid
+
 ! Local variables
 type(particles_gridded), pointer :: grd => null()
 type(particle) :: localpart
-integer :: i, j, ie, je
+integer :: i, j, d, ie, je, de
 real :: lat_min, lat_max
 logical :: lres
 
@@ -557,25 +562,35 @@ logical :: lres
 
   ie = int( (lon_end-lon_start)/dlon + 0.5 )
   je = int( (lat_end-lat_start)/dlat + 0.5 )
+  de = int( (abs(d_end)-abs(d_start))/abs(dd)+0.5 )
   !CSJ hard-coded this for now
-  localpart%k_space=.true.
-  localpart%k=0.5
-  do j =  0,je
-    localpart%lat = lat_start + dlat*float(j)
-    if (localpart%lat >= lat_min .and. localpart%lat <= lat_max) then
-      do i = 0,ie
-        localpart%lon = lon_start + dlon*float(i)
-        lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
-        if (lres) then
-          if (grd%msk(localpart%ine,localpart%jne)>-1.) then
-            localpart%id = generate_id(grd, localpart%ine, localpart%jne)
-            lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
-            call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
-          endif
-        endif
-      enddo
-    endif
-  enddo
+  !localpart%k_space=.true.
+  !localpart%k=0.5
+  do d = 0,de
+     if (d_end<0) then
+        localpart%k_space=.true.
+        localpart%k=abs(d_start) + abs(dd*float(d))
+     elseif (d_end>0) then
+        localpart%k_space=.false.
+        localpart%depth=abs(d_start) + abs(dd*float(d))
+     endif
+     do j =  0,je
+        localpart%lat = lat_start + dlat*float(j)
+        if (localpart%lat >= lat_min .and. localpart%lat <= lat_max) then
+         do i = 0,ie
+           localpart%lon = lon_start + dlon*float(i)
+           lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
+           if (lres) then
+             if (grd%msk(localpart%ine,localpart%jne)>-1.) then
+               localpart%id = generate_id(grd, localpart%ine, localpart%jne)
+               lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
+               call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
+             endif
+           endif
+         enddo
+       endif
+     enddo
+   enddo
 
   call parts_chksum(parts, 'after generated particles')
 
@@ -1285,6 +1300,7 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, part%yj)
   call push_buffer_value(buff%data(:,n), counter, part%start_lon)
   call push_buffer_value(buff%data(:,n), counter, part%start_lat)
+  call push_buffer_value(buff%data(:,n), counter, part%start_d)
   call push_buffer_value(buff%data(:,n), counter, part%start_year)
   call push_buffer_value(buff%data(:,n), counter, part%start_day)
   call push_buffer_value(buff%data(:,n), counter, INT(part%id))
@@ -1413,6 +1429,7 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%yj)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_lon)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_lat)
+  call pull_buffer_value(buff%data(:,n), counter, localpart%start_d)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_year)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_day)
   call pull_buffer_value(buff%data(:,n), counter, tmp)
@@ -1939,6 +1956,12 @@ type(particle), pointer :: part1, part2
     inorder=.false.
     return
   endif
+  if (part1%start_d<part2%start_d) then ! want top first
+    inorder=.true.
+  else if (part1%start_d>part2%start_d) then
+    inorder=.false.
+    return
+  endif
   inorder=.true. ! passing the above tests mean the parts 1 and 2 are identical?
 end function inorder
 
@@ -1969,6 +1992,7 @@ type(particle), pointer :: part1, part2
   if (part1%start_day.ne.part2%start_day) return
   if (part1%start_lon.ne.part2%start_lon) return
   if (part1%start_lat.ne.part2%start_lat) return
+  if (part1%start_d.ne.part2%start_d) return
   sameid=.true. ! passing the above tests means that parts 1 and 2 have the same id
 end function sameid
 
@@ -3440,8 +3464,8 @@ integer function part_chksum(part )
 ! Arguments
 type(particle), pointer :: part
 ! Local variables
-real :: rtmp(13) !Changed from 28 to 34 by Alon
-integer :: itmp(18), i8=0, ichk1, ichk2, ichk3 !Changed from 28 to 34 by Alon
+real :: rtmp(14) !Changed from 28 to 34 by Alon
+integer :: itmp(19), i8=0, ichk1, ichk2, ichk3 !Changed from 28 to 34 by Alon
 integer :: i
 
   rtmp(:)=0.
@@ -3451,22 +3475,23 @@ integer :: i
   rtmp(4)=part%vvel
   rtmp(5)=part%start_lon
   rtmp(6)=part%start_lat
-  rtmp(7)=part%start_day
-  rtmp(8)=part%xi
-  rtmp(9)=part%yj
-  rtmp(10)=part%uvel_old !Added by Alon
-  rtmp(11)=part%vvel_old !Added by Alon
-  rtmp(12)=part%lat_old !Added by Alon
-  rtmp(13)=part%lon_old !Added by Alon
+  rtmp(7)=part%start_d
+  rtmp(8)=part%start_day
+  rtmp(9)=part%xi
+  rtmp(10)=part%yj
+  rtmp(11)=part%uvel_old !Added by Alon
+  rtmp(12)=part%vvel_old !Added by Alon
+  rtmp(13)=part%lat_old !Added by Alon
+  rtmp(14)=part%lon_old !Added by Alon
 
-  itmp(1:13)=transfer(rtmp,i8) !Changed from 28 to 36 by Alon
-  itmp(14)=part%start_year !Changed from 29 to 37 by Alon
-  itmp(15)=part%ine !Changed from 30 to 38 by Alon
-  itmp(16)=part%jne !Changed from 31 to 39 by Alon
-  call split_id(part%id, itmp(17), itmp(18))
+  itmp(1:14)=transfer(rtmp,i8) !Changed from 28 to 36 by Alon
+  itmp(15)=part%start_year !Changed from 29 to 37 by Alon
+  itmp(16)=part%ine !Changed from 30 to 38 by Alon
+  itmp(17)=part%jne !Changed from 31 to 39 by Alon
+  call split_id(part%id, itmp(18), itmp(19))
 
   ichk1=0; ichk2=0; ichk3=0
-  do i=1,18 !Changd from 28 to 37 by Alon
+  do i=1,19 !Changd from 28 to 37 by Alon
    ichk1=ichk1+itmp(i)
    ichk2=ichk2+itmp(i)*i
    ichk3=ichk3+itmp(i)*i*i
