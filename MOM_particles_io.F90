@@ -112,10 +112,12 @@ end subroutine particles_io_init
 ! ##############################################################################
 
 !> Write an particle restart file
-subroutine write_restart(parts, h, time, stamp)
+subroutine write_restart(parts, h, directory, time, stamp)
 ! Arguments
 type(particles), pointer :: parts !< particles container
-real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
+character(len=*), intent(in) :: directory
+    !< The directory where the restart files are to be written 
 type(time_type),          intent(in)    :: time       !< The current model time
 logical,  intent(in) , optional   :: stamp !< If present and true, add time-stamp
 ! Local variables

@@ -162,7 +162,7 @@ end subroutine interp_flds
 
 
 !> The main driver the steps updates particles
-subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
+subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, stagger)
   ! Arguments
   type(particles), pointer :: parts !< Container for all types and memory
   type(time_type), intent(in) :: time !< Model time
@@ -170,6 +170,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   real, dimension(:,:,:),intent(in) :: vo !< Ocean meridional velocity (m/s)
   real, dimension(:,:,:),intent(in) :: ho !< Ocean layer thickness [H ~> m or kg m-2]
   type(thermo_var_ptrs), intent(in) :: tv !< structure containing pointers to available thermodynamic fields
+  logical :: use_uh !<use uh rather than u
   integer, optional, intent(in) :: stagger
 
   ! Local variables
@@ -180,6 +181,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
   integer :: i, j, Iu, ju, iv, Jv, Iu_off, ju_off, iv_off, Jv_off
   real :: mask
   real, dimension(:,:), allocatable :: uC_tmp, vC_tmp, uA_tmp, vA_tmp
+  real, dimension(:,:,:),allocatable :: h_upoints, h_vpoints
   integer :: vel_stagger
   real, dimension(:,:), allocatable :: iCount
   integer :: stderrunit
@@ -224,18 +226,19 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, stagger)
        ' yr,yrdy=', parts%current_year, parts%current_yearday
 
 
- ! LUYU: convert CGRID to BGRID.
  ! SPENCER: here is where we need to pass all ocean velocities
 
-     grd%uo(:,:,:) = uo(:,:,:)
-     grd%vo(:,:,:) = vo(:,:,:)
-
-!     grd%uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
-     !0.5*(uo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+uo(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke))
-!     grd%vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
-    !0.5*(vo(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+vo(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke))
-     grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke) = ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)
-
+  if (use_uh) then
+    h_upoints=0.5*(ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd-1:grd%ied-1,grd%jsd:grd%jed,1:grd%ke))
+    h_vpoints=0.5*(ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd-1:grd%jed-1,1:grd%ke))
+    do k=1,grd%ke
+      grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(:,:,k) / parts%dt / grd%dx
+      grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(:,:,k) / parts%dt / grd%dx
+    enddo
+  else
+    grd%uo(:,:,:) = uo(:,:,:)
+    grd%vo(:,:,:) = vo(:,:,:)
+  endif
   do k=2,grd%ke
       grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
   enddo
@@ -963,9 +966,10 @@ subroutine adjust_index_and_ground(grd, lon, lat, uvel, vvel, i, j, xi, yj, boun
 
 ! ###################################################################################
 
-subroutine particles_save_restart(parts, h, time, stamp)
+subroutine particles_save_restart(parts, h, directory, time, stamp)
 ! Arguments
 type(particles), pointer :: parts
+character(len=*), intent(in) :: directory !< The directory where the restart files are to be written
 type(time_type),          intent(in)    :: time       !< The current model time
 logical, optional, intent(in)    :: stamp !< If present and true, add time-stamp
 real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
@@ -975,7 +979,7 @@ real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   call parts_chksum(parts, 'write_restart parts')
-  call write_restart(parts,h,time,stamp)
+  call write_restart(parts, h, directory, time,stamp)
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart
