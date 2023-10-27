@@ -29,7 +29,7 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=17 ! size of buffer dimension for comms
+integer :: buffer_width=18 ! size of buffer dimension for comms
 integer :: buffer_width_traj=15  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
@@ -522,7 +522,8 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
     if (lgenerate) then 
        call generate_grid_of_particles(parts, &
                           generate_lons(1), generate_lons(2), generate_lons(3), &
-                          generate_lats(1), generate_lats(2), generate_lats(3), &                         generate_d(1), generate_d(2), generate_d(3))
+                          generate_lats(1), generate_lats(2), generate_lats(3), &
+                          generate_d(1), generate_d(2), generate_d(3))
     endif
   endif
 
@@ -549,6 +550,7 @@ real, intent(in) :: dd !< Separation depth of particles on grid
 type(particles_gridded), pointer :: grd => null()
 type(particle) :: localpart
 integer :: i, j, d, ie, je, de
+integer :: num
 real :: lat_min, lat_max
 logical :: lres
 
@@ -566,6 +568,7 @@ logical :: lres
   !CSJ hard-coded this for now
   !localpart%k_space=.true.
   !localpart%k=0.5
+  num = 0
   do d = 0,de
      if (d_end<0) then
         localpart%k_space=.true.
@@ -582,6 +585,8 @@ logical :: lres
            lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
            if (lres) then
              if (grd%msk(localpart%ine,localpart%jne)>-1.) then
+               num = num+1
+               localpart%drifter_num = num
                localpart%id = generate_id(grd, localpart%ine, localpart%jne)
                lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
                call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
