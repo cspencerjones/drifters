@@ -516,6 +516,9 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   endif
   call  convert_from_meters_to_grid(lat2,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl2,dydl,reg_dldx)
   !dxdl2=r180_pi/(Rearth*cos(lat2*pi_180))
+  if (.not.on_tangential_plane) then
+    call interp_flds(grd, i, j, part%k, xi, yj, uvel2, vvel2)
+  endif
   u2=uvel2*dxdl2; v2=vvel2*dydl
 
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
@@ -534,6 +537,9 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   ! if (bounced.and.on_tangential_plane) call rotpos_to_tang(lon3,lat3,x3,y3)
   call  convert_from_meters_to_grid(lat3,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl3,dydl,reg_dldx)
   !dxdl3=r180_pi/(Rearth*cos(lat3*pi_180))
+  if (.not.on_tangential_plane) then
+    call interp_flds(grd, i, j, part%k, xi, yj, uvel3, vvel3)
+  endif
   u3=uvel3*dxdl3; v3=vvel3*dydl
 
   !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
@@ -551,6 +557,9 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   i4=i; j4=j
   call  convert_from_meters_to_grid(lat4,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl4,dydl,reg_dldx)
   !dxdl4=r180_pi/(Rearth*cos(lat4*pi_180))
+  if (.not.on_tangential_plane) then
+    call interp_flds(grd, i, j, part%k, xi, yj, uvel4, vvel4)
+  endif
   u4=uvel4*dxdl4; v4=vvel4*dydl
 
   !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
