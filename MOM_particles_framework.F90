@@ -1454,14 +1454,14 @@ logical :: quick
   localpart%lat_old=localpart%lat
 
   !added by CSJ in order to get a re-entrant channel (more permanent solution needed)
-  if (localpart%lon>22.0) then
+!  if (localpart%lon>22.0) then
        ! write(stderrunit,'("moving part=(",i3,a,2f8.2)')&
        !  & mpp_pe(),' from lon,lat=',localpart%lon,localpart%lat
-       localpart%lon=localpart%lon-22.0
+!       localpart%lon=localpart%lon-22.0
        ! write(stderrunit,*) localpart%lon,localpart%lat
-  elseif (localpart%lon<0.0) then
-       localpart%lon=localpart%lon+22.0
-  endif
+!  elseif (localpart%lon<0.0) then
+!       localpart%lon=localpart%lon+22.0
+!  endif
 
 
   ! force_app=.true.
