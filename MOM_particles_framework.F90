@@ -579,13 +579,13 @@ logical :: lres
      endif
      do j =  0,je
         localpart%lat = lat_start + dlat*float(j)
-        if (localpart%lat >= lat_min .and. localpart%lat <= lat_max) then
+!        if (localpart%lat >= lat_min .and. localpart%lat <= lat_max) then
          do i = 0,ie
            localpart%lon = lon_start + dlon*float(i)
            lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
+           num=num+1
            if (lres) then
              if (grd%msk(localpart%ine,localpart%jne)>-1.) then
-               num = num+1
                localpart%drifter_num = num
                localpart%id = generate_id(grd, localpart%ine, localpart%jne)
                lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
@@ -593,7 +593,7 @@ logical :: lres
              endif
            endif
          enddo
-       endif
+!       endif
      enddo
    enddo
 
