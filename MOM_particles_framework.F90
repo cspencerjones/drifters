@@ -6,6 +6,9 @@ module MOM_particles_framework
 
 use constants_mod, only: radius, pi, omega, HLF
 use MOM_grid, only : ocean_grid_type
+use MOM_time_manager, only : get_time
+
+
 use mpp_mod, only: mpp_npes, mpp_pe, mpp_root_pe, mpp_sum, mpp_min, mpp_max, NULL_PE
 use mpp_mod, only: mpp_send, mpp_recv, mpp_sync_self, mpp_pe, mpp_root_pe, mpp_chksum
 use mpp_mod, only: COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
@@ -2026,7 +2029,12 @@ real function yearday(imon, iday, ihr, imin, isec)
 ! Arguments
 integer, intent(in) :: imon, iday, ihr, imin, isec
 
-  yearday=float(imon-1)*31.+float(iday-1)+(float(ihr)+(float(imin)+float(isec)/60.)/60.)/24.
+! Local variables
+integer :: sec
+integer :: yeardayint
+
+   call get_time((set_date(1, imon, iday, ihr, imin, isec) - set_date(1, 1, 1, 0, 0, 0)), sec, yeardayint)
+   yearday = float(yeardayint) + (float(ihr) + (float(imin) + float(isec)/60.)/60.)/24.
 
 end function yearday
 
