@@ -7,7 +7,7 @@ module MOM_particles_framework
 use constants_mod, only: radius, pi, omega, HLF
 use MOM_grid, only : ocean_grid_type
 use MOM_time_manager, only : get_time
-
+use MOM_file_parser, only : get_param
 
 use mpp_mod, only: mpp_npes, mpp_pe, mpp_root_pe, mpp_sum, mpp_min, mpp_max, NULL_PE
 use mpp_mod, only: mpp_send, mpp_recv, mpp_sync_self, mpp_pe, mpp_root_pe, mpp_chksum
@@ -2360,17 +2360,19 @@ integer, intent(inout) :: i, j
 integer :: is,ie,js,je,di,dj,io,jo,icnt
 real :: d0,d1,d2,d3,d4,d5,d6,d7,d8,dmin
 logical :: explain=.false.
+real :: Lx
 
 911 continue
 
+  Lx=grd%Lx
   find_cell_by_search=.false.
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
 
   ! Start at nearest corner
-  d1=dcost(x,y,grd%lonc(is+1,js+1),grd%latc(is+1,js+1))
-  d2=dcost(x,y,grd%lonc(ie-1,js+1),grd%latc(ie-1,js+1))
-  d3=dcost(x,y,grd%lonc(ie-1,je-1),grd%latc(ie-1,je-1))
-  d4=dcost(x,y,grd%lonc(is+1,je-1),grd%latc(is+1,je-1))
+  d1=dcost(x,y,grd%lonc(is+1,js+1),grd%latc(is+1,js+1),Lx)
+  d2=dcost(x,y,grd%lonc(ie-1,js+1),grd%latc(ie-1,js+1),Lx)
+  d3=dcost(x,y,grd%lonc(ie-1,je-1),grd%latc(ie-1,je-1),Lx)
+  d4=dcost(x,y,grd%lonc(is+1,je-1),grd%latc(is+1,je-1),Lx)
   dmin=min(d1,d2,d3,d4)
   if (d1==dmin) then; i=is+1; j=js+1
   elseif (d2==dmin) then; i=ie-1; j=js+1
@@ -2394,15 +2396,15 @@ logical :: explain=.false.
   do icnt=1, 1*(ie-is+je-js)
     io=i; jo=j
 
-    d0=dcost(x,y,grd%lonc(io,jo),grd%latc(io,jo))
-    d1=dcost(x,y,grd%lonc(io,jo+1),grd%latc(io,jo+1))
-    d2=dcost(x,y,grd%lonc(io-1,jo+1),grd%latc(io-1,jo+1))
-    d3=dcost(x,y,grd%lonc(io-1,jo),grd%latc(io-1,jo))
-    d4=dcost(x,y,grd%lonc(io-1,jo-1),grd%latc(io-1,jo-1))
-    d5=dcost(x,y,grd%lonc(io,jo-1),grd%latc(io,jo-1))
-    d6=dcost(x,y,grd%lonc(io+1,jo-1),grd%latc(io+1,jo-1))
-    d7=dcost(x,y,grd%lonc(io+1,jo),grd%latc(io+1,jo))
-    d8=dcost(x,y,grd%lonc(io+1,jo+1),grd%latc(io+1,jo+1))
+    d0=dcost(x,y,grd%lonc(io,jo),grd%latc(io,jo),Lx)
+    d1=dcost(x,y,grd%lonc(io,jo+1),grd%latc(io,jo+1),Lx)
+    d2=dcost(x,y,grd%lonc(io-1,jo+1),grd%latc(io-1,jo+1),Lx)
+    d3=dcost(x,y,grd%lonc(io-1,jo),grd%latc(io-1,jo),Lx)
+    d4=dcost(x,y,grd%lonc(io-1,jo-1),grd%latc(io-1,jo-1),Lx)
+    d5=dcost(x,y,grd%lonc(io,jo-1),grd%latc(io,jo-1),Lx)
+    d6=dcost(x,y,grd%lonc(io+1,jo-1),grd%latc(io+1,jo-1),Lx)
+    d7=dcost(x,y,grd%lonc(io+1,jo),grd%latc(io+1,jo),Lx)
+    d8=dcost(x,y,grd%lonc(io+1,jo+1),grd%latc(io+1,jo+1),Lx)
 
   ! dmin=min(d0,d1,d3,d5,d7)
     dmin=min(d0,d1,d2,d3,d4,d5,d6,d7,d8)
@@ -2483,13 +2485,17 @@ logical :: explain=.false.
 
 ! # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-  real function dcost(x1, y1, x2, y2)
+  real function dcost(x1, y1, x2, y2,Lx)
   ! Arguments
-  real, intent(in) :: x1, x2, y1, y2
+  real, intent(in) :: x1 !< x-coordinate or point 1
+  real, intent(in) :: x2 !< x-coordinate or point 2
+  real, intent(in) :: y1 !< y-coordinate or point 1
+  real, intent(in) :: y2 !< y-coordinate or point 2
+  real, intent(in) :: Lx !< Periodicity of x-coordinate
   ! Local variables
   real :: x1m
-
-    x1m=modulo(x1-(x2-180.),360.)+(x2-180.)
+  x1m=apply_modulo_around_point(x1,x2,Lx)
+  !x1m=modulo(x1-(x2-180.),360.)+(x2-180.)
   ! dcost=(x2-x1)**2+(y2-y1)**2
     dcost=(x2-x1m)**2+(y2-y1)**2
   end function dcost
@@ -2505,6 +2511,9 @@ logical :: explain=.false.
   ! Local variables
   integer :: i,j,xs,xe,ys,ye
   real :: dmin, dcst
+  real :: Lx
+
+  Lx=grd%Lx
 
   xs=max(grd%isc, oi-w)
   xe=min(grd%iec, oi+w)
@@ -2512,9 +2521,9 @@ logical :: explain=.false.
   ye=min(grd%jec, oj+w)
 
   find_better_min=.false.
-  dmin=dcost(x,y,grd%lonc(oi,oj),grd%latc(oi,oj))
+  dmin=dcost(x,y,grd%lonc(oi,oj),grd%latc(oi,oj),Lx)
   do j=ys,ye; do i=xs,xe
-      dcst=dcost(x,y,grd%lonc(i,j),grd%latc(i,j))
+      dcst=dcost(x,y,grd%lonc(i,j),grd%latc(i,j),Lx)
       if (dcst<dmin) then
         find_better_min=.true.
         dmin=dcst
@@ -2652,9 +2661,12 @@ logical, intent(in), optional :: explain
 ! Local variables
 real :: xlo, xhi, ylo, yhi
 integer :: stderrunit
+real :: Lx
+real :: tol
 
   ! Get the stderr unit number
   stderrunit=stderr()
+  Lx=grd%Lx
 
   ! Safety check index bounds
   if (i-1.lt.grd%isd.or.i.gt.grd%ied.or.j-1.lt.grd%jsd.or.j.gt.grd%jed) then
@@ -2667,78 +2679,92 @@ integer :: stderrunit
   is_point_in_cell=.false.
 
   ! Test crude bounds
-  xlo=min( modulo(grd%lon(i-1,j-1)-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i  ,j-1)-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i-1,j  )-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i  ,j  )-(x-180.),360.)+(x-180.) )
-  xhi=max( modulo(grd%lon(i-1,j-1)-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i  ,j-1)-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i-1,j  )-(x-180.),360.)+(x-180.), &
-           modulo(grd%lon(i  ,j  )-(x-180.),360.)+(x-180.) )
-  if (x.lt.xlo .or. x.gt.xhi) return
+  xlo=min( apply_modulo_around_point(grd%lon(i-1,j-1)   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i  ,j-1)   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i-1,j  )   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i  ,j  )   ,x,  Lx) )
+  xhi=max( apply_modulo_around_point(grd%lon(i-1,j-1)   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i  ,j-1)   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i-1,j  )   ,x,  Lx), &
+           apply_modulo_around_point(grd%lon(i  ,j  )   ,x,  Lx) )
+
+  ! The modolo function inside sum_sign_dot_prod leads to a roundoff.
+  !Adding adding a tolorance to the crude bounds avoids excluding the cell which
+  !would be correct after roundoff. This is a bit of a hack.
+  tol=0.1
+  if (x.lt.(xlo-tol) .or. x.gt.(xhi+tol)) return
+
   ylo=min( grd%lat(i-1,j-1), grd%lat(i,j-1), grd%lat(i-1,j), grd%lat(i,j) )
   yhi=max( grd%lat(i-1,j-1), grd%lat(i,j-1), grd%lat(i-1,j), grd%lat(i,j) )
   if (y.lt.ylo .or. y.gt.yhi) return
 
-  if (grd%lat(i,j).gt.89.999) then
+  if ((grd%lat(i,j).gt.89.999).and. (grd%grid_is_latlon))   then
     is_point_in_cell=sum_sign_dot_prod5(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                         grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                         grd%lon(i  ,j-1),grd%lat(i  ,j  ), &
                                         grd%lon(i-1,j  ),grd%lat(i  ,j  ), &
                                         grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                        x, y, explain=explain)
-  elseif (grd%lat(i-1,j).gt.89.999) then
+                                        x, y, Lx,explain=explain)
+  elseif ((grd%lat(i-1,j).gt.89.999) .and. (grd%grid_is_latlon))  then
     is_point_in_cell=sum_sign_dot_prod5(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                         grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                         grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                         grd%lon(i  ,j  ),grd%lat(i-1,j  ), &
                                         grd%lon(i-1,j-1),grd%lat(i-1,j  ), &
-                                        x, y, explain=explain)
-  elseif (grd%lat(i-1,j-1).gt.89.999) then
+                                        x, y,Lx, explain=explain)
+  elseif ((grd%lat(i-1,j-1).gt.89.999) .and. (grd%grid_is_latlon))  then
     is_point_in_cell=sum_sign_dot_prod5(grd%lon(i-1,j  ),grd%lat(i-1,j-1), &
                                         grd%lon(i  ,j-1),grd%lat(i-1,j-1), &
                                         grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                         grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                         grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                        x, y, explain=explain)
-  elseif (grd%lat(i,j-1).gt.89.999) then
+                                        x, y,Lx, explain=explain)
+  elseif ((grd%lat(i,j-1).gt.89.999) .and. (grd%grid_is_latlon)) then
     is_point_in_cell=sum_sign_dot_prod5(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                         grd%lon(i-1,j-1),grd%lat(i  ,j-1), &
                                         grd%lon(i  ,j  ),grd%lat(i  ,j-1), &
                                         grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                         grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                        x, y, explain=explain)
+                                        x, y, Lx,explain=explain)
   else
   is_point_in_cell=sum_sign_dot_prod4(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                       grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                       grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                       grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                      x, y, explain=explain)
+                                      x, y,Lx, explain=explain)
   endif
 
 end function is_point_in_cell
-
 ! ##############################################################################
 
-logical function sum_sign_dot_prod4(x0, y0, x1, y1, x2, y2, x3, y3, x, y, explain)
-! Arguments
-real, intent(in) :: x0, y0, x1, y1, x2, y2, x3, y3, x, y
-logical, intent(in), optional :: explain
+logical function sum_sign_dot_prod4(x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, explain)
+
+  ! Get the stderr unit numberrguments
+real, intent(in) :: x0 !< Longitude of first corner
+real, intent(in) :: y0 !< Latitude of first corner
+real, intent(in) :: x1 !< Longitude of second corner
+real, intent(in) :: y1 !< Latitude of second corner
+real, intent(in) :: x2 !< Longitude of third corner
+real, intent(in) :: y2 !< Latitude of third corner
+real, intent(in) :: x3 !< Longitude of fourth corner
+real, intent(in) :: y3 !< Latitude of fourth corner
+real, intent(in) :: x !< Longitude of point
+real, intent(in) :: y !< Latitude of point
+real, intent(in) :: Lx !< Length of domain in zonal direction
+logical, intent(in), optional :: explain !< If true, print debugging
 ! Local variables
 real :: p0,p1,p2,p3,xx
 real :: l0,l1,l2,l3
 real :: xx0,xx1,xx2,xx3
 integer :: stderrunit
-
-  ! Get the stderr unit number
   stderrunit=stderr()
 
   sum_sign_dot_prod4=.false.
-  xx=modulo(x-(x0-180.),360.)+(x0-180.) ! Reference x to within 180 of x0
-  xx0=modulo(x0-(x0-180.),360.)+(x0-180.) ! Reference x0 to within 180 of xx
-  xx1=modulo(x1-(x0-180.),360.)+(x0-180.) ! Reference x1 to within 180 of xx
-  xx2=modulo(x2-(x0-180.),360.)+(x0-180.) ! Reference x2 to within 180 of xx
-  xx3=modulo(x3-(x0-180.),360.)+(x0-180.) ! Reference x3 to within 180 of xx
+  xx= apply_modulo_around_point(x,x0,Lx)
+  xx0= apply_modulo_around_point(x0,x0,Lx)
+  xx1= apply_modulo_around_point(x1,x0,Lx)
+  xx2= apply_modulo_around_point(x2,x0,Lx)
+  xx3= apply_modulo_around_point(x3,x0,Lx)
 
   l0=(xx-xx0)*(y1-y0)-(y-y0)*(xx1-xx0)
   l1=(xx-xx1)*(y2-y1)-(y-y1)*(xx2-xx1)
@@ -2774,26 +2800,36 @@ end function sum_sign_dot_prod4
 
 ! ##############################################################################
 
-logical function sum_sign_dot_prod5(x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x, y, explain)
+logical function sum_sign_dot_prod5(x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x, y, Lx, explain)
 ! Arguments
-real, intent(in) :: x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x, y
-logical, intent(in), optional :: explain
+real, intent(in) :: x0 !< Longitude of first corner
+real, intent(in) :: y0 !< Latitude of first corner
+real, intent(in) :: x1 !< Longitude of second corner
+real, intent(in) :: y1 !< Latitude of second corner
+real, intent(in) :: x2 !< Longitude of third corner
+real, intent(in) :: y2 !< Latitude of third corner
+real, intent(in) :: x3 !< Longitude of fourth corner
+real, intent(in) :: y3 !< Latitude of fourth corner
+real, intent(in) :: x4 !< Longitude of fifth corner
+real, intent(in) :: y4 !< Latitude of fifth corner
+real, intent(in) :: x !< Longitude of point
+real, intent(in) :: y !< Latitude of point
+real, intent(in) :: Lx !< Length of domain in zonal direction
+logical, intent(in), optional :: explain !< If true, print debugging
 ! Local variables
 real :: p0,p1,p2,p3,p4,xx
 real :: l0,l1,l2,l3,l4
 real :: xx0,xx1,xx2,xx3,xx4
 integer :: stderrunit
-
-  ! Get the stderr unit number
   stderrunit=stderr()
 
   sum_sign_dot_prod5=.false.
-  xx=modulo(x-(x0-180.),360.)+(x0-180.) ! Reference x to within 180 of x0
-  xx0=modulo(x0-(x0-180.),360.)+(x0-180.) ! Reference x0 to within 180 of xx
-  xx1=modulo(x1-(x0-180.),360.)+(x0-180.) ! Reference x1 to within 180 of xx
-  xx2=modulo(x2-(x0-180.),360.)+(x0-180.) ! Reference x2 to within 180 of xx
-  xx3=modulo(x3-(x0-180.),360.)+(x0-180.) ! Reference x3 to within 180 of xx
-  xx4=modulo(x4-(x0-180.),360.)+(x0-180.) ! Reference x4 to within 180 of xx
+  xx= apply_modulo_around_point(x,x0,Lx)
+  xx0= apply_modulo_around_point(x0,x0,Lx)
+  xx1= apply_modulo_around_point(x1,x0,Lx)
+  xx2= apply_modulo_around_point(x2,x0,Lx)
+  xx3= apply_modulo_around_point(x3,x0,Lx)
+  xx4= apply_modulo_around_point(x4,x0,Lx)
 
   l0=(xx-xx0)*(y1-y0)-(y-y0)*(xx1-xx0)
   l1=(xx-xx1)*(y2-y1)-(y-y1)*(xx2-xx1)
@@ -2840,9 +2876,13 @@ logical, intent(in), optional :: explain
 ! Local variables
 real :: x1,y1,x2,y2,x3,y3,x4,y4,xx,yy,fac
 integer :: stderrunit
+real :: Lx, dx,dy
+real :: Delta_x
+logical :: is_point_in_cell_using_xi_yj
 
   ! Get the stderr unit number
   stderrunit=stderr()
+  Lx=grd%Lx
 
   pos_within_cell=.false.; xi=-999.; yj=-999.
   if (i-1<grd%isd) return
@@ -2868,10 +2908,24 @@ integer :: stderrunit
     endif
   endif
 
-  if (max(y1,y2,y3,y4)<89.999) then
-    call calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, x, y, xi, yj, explain=explain)
+  if ((.not. grd%grid_is_latlon) .and. (grd%grid_is_regular))  then
+    dx=abs((grd%lon(i  ,j  )-grd%lon(i-1  ,j  )))
+    dy=abs((grd%lat(i  ,j  )-grd%lat(i  ,j-1  )))
+    x1=grd%lon(i  ,j  )-(dx/2)
+    y1=grd%lat(i  ,j  )-(dy/2)
+
+    Delta_x= apply_modulo_around_point(x,x1,Lx)-x1
+
+    xi=((Delta_x)/dx)+0.5
+    !xi=((x-x1)/dx)+0.5
+    yj=((y-y1)/dy)+0.5
+
+  elseif ((max(y1,y2,y3,y4)<89.999) .or.(.not. grd%grid_is_latlon)) then
+      ! This returns non-dimensional position xi,yj for quad cells (not at a
+      ! pole)
+    call calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, x, y, xi, yj, Lx,explain=explain)
   else
-    if (debug) write(stderrunit,*) 'particles, pos_within_cell: working in tangential plane!'
+  if (debug) write(stderrunit,*) 'particles, pos_within_cell: working in tangential plane!'
     xx=(90.-y)*cos(x*pi_180)
     yy=(90.-y)*sin(x*pi_180)
     x1=(90.-y1)*cos(grd%lon(i-1,j-1)*pi_180)
@@ -2890,7 +2944,7 @@ integer :: stderrunit
       write(stderrunit,'(a,2f12.6)') 'pos_within_cell: y',yy
       endif
     endif
-    call calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, xx, yy, xi, yj, explain=explain)
+    call calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, xx, yy, xi, yj, Lx, explain=explain)
     if (is_point_in_cell(grd, x, y, i, j)) then
       if (abs(xi-0.5)>0.5.or.abs(yj-0.5)>0.5) then
         ! Scale internal coordinates to be consistent with is_point_in_cell()
@@ -2927,16 +2981,26 @@ integer :: stderrunit
 
   contains
 
-  subroutine calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, x, y, xi, yj, explain)
+  subroutine calc_xiyj(x1, x2, x3, x4, y1, y2, y3, y4, x, y, xi, yj, Lx, explain)
   ! Arguments
-  real,  intent(in) :: x1, x2, x3, x4, y1, y2, y3, y4, x, y
-  real, intent(out) :: xi, yj
-  logical, intent(in), optional :: explain
+  real, intent(in) :: x1 !< Longitude of first corner
+  real, intent(in) :: y1 !< Latitude of first corner
+  real, intent(in) :: x2 !< Longitude of second corner
+  real, intent(in) :: y2 !< Latitude of second corner
+  real, intent(in) :: x3 !< Longitude of third corner
+  real, intent(in) :: y3 !< Latitude of third corner
+  real, intent(in) :: x4 !< Longitude of fourth corner
+  real, intent(in) :: y4 !< Latitude of fourth corner
+  real, intent(in) :: x !< Longitude of point
+  real, intent(in) :: y !< Latitude of point
+  real, intent(out) :: xi !< Non-dimensional x-position within cell
+  real, intent(out) :: yj !< Non-dimensional y-position within cell
+  real, intent(in) :: Lx !< Length of domain in zonal direction
+  logical, intent(in), optional :: explain !< If true, print debugging
   ! Local variables
   real :: alpha, beta, gamma, delta, epsilon, kappa, a, b, c, d, dx, dy, yy1, yy2
   logical :: expl=.false.
   integer :: stderrunit
-
   ! Get the stderr unit number
   stderrunit=stderr()
 
@@ -2954,7 +3018,8 @@ integer :: stderrunit
   if (expl) write(stderrunit,'(a,1p6e12.4)') 'calc_xiyj: coeffs delta,epsilon,kappa',alpha,beta,gamma,delta,epsilon,kappa
 
   a=(kappa*beta-gamma*epsilon)
-  dx=modulo(x-(x1-180.),360.)+(x1-180.)-x1
+  dx= apply_modulo_around_point(x,x1,Lx)-x1
+
   dy=y-y1
   b=(delta*beta-alpha*epsilon)-(kappa*dx-gamma*dy)
   c=(alpha*dy-delta*dx)
