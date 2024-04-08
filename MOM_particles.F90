@@ -162,7 +162,7 @@ end subroutine interp_flds
 
 
 !> The main driver the steps updates particles
-subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, stagger)
+subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, thetao)
   ! Arguments
   type(particles), pointer :: parts !< Container for all types and memory
   type(time_type), intent(in) :: time !< Model time
@@ -171,7 +171,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, stagger)
   real, dimension(:,:,:),intent(in) :: ho !< Ocean layer thickness [H ~> m or kg m-2]
   type(thermo_var_ptrs), intent(in) :: tv !< structure containing pointers to available thermodynamic fields
   logical :: use_uh !<use uh rather than u
-  integer, optional, intent(in) :: stagger
+  real, dimension(:,:,:), optional, intent(in) :: thetao
 
   ! Local variables
   integer :: iyr, imon, iday, ihr, imin, isec, k
@@ -182,16 +182,12 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, stagger)
   real :: mask
   real, dimension(:,:), allocatable :: uC_tmp, vC_tmp, uA_tmp, vA_tmp
   real, dimension(:,:,:),allocatable :: h_upoints, h_vpoints
-  integer :: vel_stagger
   real, dimension(:,:), allocatable :: iCount
   integer :: stderrunit
 
 
   ! Get the stderr unit number
   stderrunit = stderr()
-
-  ! vel_stagger = CGRID_NE ; if (present(stagger)) vel_stagger = stagger
-  vel_stagger = BGRID_NE ; if (present(stagger)) vel_stagger = stagger
 
   ! For convenience
   grd=>parts%grd
@@ -272,7 +268,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, stagger)
 
   ! For each part, record
   ! sample_traj = .true.
-  if (sample_traj) call record_posn(parts,ho)
+  if (sample_traj) call record_posn(parts, ho, thetao)
   if (write_traj) then
     call move_all_trajectories(parts)
     call write_trajectory(parts%trajectories, parts%save_short_traj)

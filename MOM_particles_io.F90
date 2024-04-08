@@ -514,7 +514,7 @@ logical, intent(in) :: save_short_traj !< If true, record less data
 ! Local variables
 integer :: iret, ncid, i_dim, i
 integer :: lonid, latid, yearid, dayid, uvelid, vvelid, idcntid, idijid, drnumid
-integer :: kid, depthid
+integer :: kid, depthid, thetaid
 integer :: uoid, void, uiid, viid, uaid, vaid, sshxid, sshyid, sstid, sssid
 integer :: cnid, hiid
 integer :: mid, did, wid, lid, mbid, hdid
@@ -636,6 +636,7 @@ logical :: io_is_in_append_mode
       drnumid = inq_varid(ncid, 'drifter_num')
       idcntid = inq_varid(ncid, 'id_cnt')
       idijid = inq_varid(ncid, 'id_ij')
+      thetaid = inq_varid(ncid, 'theta')
       if (.not.save_short_traj) then
         uvelid = inq_varid(ncid, 'uvel')
         vvelid = inq_varid(ncid, 'vvel')
@@ -655,6 +656,7 @@ logical :: io_is_in_append_mode
       drnumid = def_var(ncid, 'drifter_num', NF_INT, i_dim)
       idcntid = def_var(ncid, 'id_cnt', NF_INT, i_dim)
       idijid = def_var(ncid, 'id_ij', NF_INT, i_dim)
+      thetaid = def_var(ncid,'theta', NF_DOUBLE, i_dim)
       if (.not. save_short_traj) then
         uvelid = def_var(ncid, 'uvel', NF_DOUBLE, i_dim)
         vvelid = def_var(ncid, 'vvel', NF_DOUBLE, i_dim)
@@ -680,7 +682,8 @@ logical :: io_is_in_append_mode
       call put_att(ncid, idcntid, 'units', 'dimensionless')
       call put_att(ncid, idijid, 'long_name', 'position component of particle id')
       call put_att(ncid, idijid, 'units', 'dimensionless')
-
+      call put_att(ncid, thetaid, 'long_name', 'temperature')
+      call put_att(ncid, thetaid, 'units', 'degrees_C')
       if (.not. save_short_traj) then
         call put_att(ncid, uvelid, 'long_name', 'zonal spped')
         call put_att(ncid, uvelid, 'units', 'm/s')
@@ -712,6 +715,7 @@ logical :: io_is_in_append_mode
       call split_id(this%id, cnt, ij)
       call put_int(ncid, idcntid, i, cnt)
       call put_int(ncid, idijid, i, ij)
+      call put_double(ncid, thetaid, i, this%theta)
       if (.not. save_short_traj) then
         call put_double(ncid, uvelid, i, this%uvel)
         call put_double(ncid, vvelid, i, this%vvel)

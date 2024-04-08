@@ -32,8 +32,8 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=18 ! size of buffer dimension for comms
-integer :: buffer_width_traj=15  
+integer :: buffer_width=19 ! size of buffer dimension for comms
+integer :: buffer_width_traj=16  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -145,6 +145,7 @@ type :: xyt
   real :: lat_old, lon_old   !< Previous position (degrees)
   real :: uvel, vvel         !< Current velocity components (m/s)
   real :: uvel_old, vvel_old !< Previous velocity components (m/s)
+  real :: theta
   integer :: year, particle_num  !< Current year and particle number
   integer(kind=8) :: id = -1 !< Particle Identifier
   real :: k !<Current vertical level i which the particle resides
@@ -158,6 +159,7 @@ type :: particle
   type(particle), pointer :: prev=>null(), next=>null()
   ! State variables (specific to the particle, needed for restarts)
   real :: lon, lat, depth, uvel, vvel !< position (degrees) and zonal and meridional velocities (m/s)
+  real :: theta !<temperature at the location of the particle
   real :: lon_old, lat_old, uvel_old, vvel_old  !< previous position (degrees) and zonal
                                                 !< and meridional velocities (m/s)
   real :: start_lon, start_lat, start_d, start_day       !< origination position (degrees) and day
@@ -1306,6 +1308,7 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, part%vvel)
   call push_buffer_value(buff%data(:,n), counter, part%xi)
   call push_buffer_value(buff%data(:,n), counter, part%yj)
+  call push_buffer_value(buff%data(:,n), counter, part%theta)
   call push_buffer_value(buff%data(:,n), counter, part%start_lon)
   call push_buffer_value(buff%data(:,n), counter, part%start_lat)
   call push_buffer_value(buff%data(:,n), counter, part%start_d)
@@ -1435,6 +1438,7 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%vvel)
   call pull_buffer_value(buff%data(:,n), counter, localpart%xi)
   call pull_buffer_value(buff%data(:,n), counter, localpart%yj)
+  call pull_buffer_value(buff%data(:,n), counter, localpart%theta)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_lon)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_lat)
   call pull_buffer_value(buff%data(:,n), counter, localpart%start_d)
@@ -1622,13 +1626,14 @@ end subroutine increase_ibuffer
     buff%data(6,n)=float(ij)
     buff%data(7,n)=traj%uvel
     buff%data(8,n)=traj%vvel
-    buff%data(9,n)=traj%uvel_old !Alon
-    buff%data(10,n)=traj%vvel_old !Alon
-    buff%data(11,n)=traj%lon_old !Alon
-    buff%data(12,n)=traj%lat_old !Alon
-    buff%data(13,n)=traj%particle_num !Alon
-    buff%data(14,n)=traj%k
-    buff%data(15,n)=traj%depth
+    buff%data(9,n)=traj%theta
+    buff%data(10,n)=traj%uvel_old !Alon
+    buff%data(11,n)=traj%vvel_old !Alon
+    buff%data(12,n)=traj%lon_old !Alon
+    buff%data(13,n)=traj%lat_old !Alon
+    buff%data(14,n)=traj%particle_num !Alon
+    buff%data(15,n)=traj%k
+    buff%data(16,n)=traj%depth
 
   end subroutine pack_traj_into_buffer2
 
@@ -1653,13 +1658,14 @@ end subroutine increase_ibuffer
     traj%id = id_from_2_ints(cnt, ij)
     traj%uvel=buff%data(7,n)
     traj%vvel=buff%data(8,n)
-    traj%uvel_old=buff%data(9,n) !Alon
-    traj%vvel_old=buff%data(10,n) !Alon
-    traj%lon_old=buff%data(11,n) !Alon
-    traj%lat_old=buff%data(12,n) !Alon
-    traj%particle_num=buff%data(13,n)
-    traj%k=buff%data(14,n) 
-    traj%depth=buff%data(15,n)
+    traj%theta=buff%data(9,n)
+    traj%uvel_old=buff%data(10,n) !Alon
+    traj%vvel_old=buff%data(11,n) !Alon
+    traj%lon_old=buff%data(12,n) !Alon
+    traj%lat_old=buff%data(13,n) !Alon
+    traj%particle_num=buff%data(14,n)
+    traj%k=buff%data(15,n) 
+    traj%depth=buff%data(16,n)
 
     call append_posn(first, traj)
 
@@ -2208,16 +2214,19 @@ end function count_parts_in_list
 
 ! ##############################################################################
 !> Add a record to the trajectory of each part
-subroutine record_posn(parts,h)
+subroutine record_posn(parts, h, thetao)
 ! Arguments
 type(particles), pointer :: parts !< Container for all types and memory
 real,dimension(:,:,:), intent(in) :: h
+real,dimension(:,:,:), optional, intent(in) :: thetao
 ! Local variables
 type(xyt) :: posn
 type(particle), pointer :: this
 integer :: grdi, grdj
 type(particles_gridded), pointer :: grd
+integer :: stderrunit
 
+  stderrunit=stderr()
 
   grd=>parts%grd
   do grdj = parts%grd%jsc,parts%grd%jec ; do grdi = parts%grd%isc,parts%grd%iec
@@ -2227,6 +2236,10 @@ type(particles_gridded), pointer :: grd
       posn%lat=this%lat
       posn%k=this%k
       call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
+      posn%theta = bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
+!      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
+!                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
+!                     floor(this%k), this%lon, this%lat, posn%theta  
       posn%depth=this%depth
       posn%year=parts%current_year
       posn%day=parts%current_yearday
