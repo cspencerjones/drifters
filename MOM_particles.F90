@@ -162,7 +162,7 @@ end subroutine interp_flds
 
 
 !> The main driver the steps updates particles
-subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, thetao)
+subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
   ! Arguments
   type(particles), pointer :: parts !< Container for all types and memory
   type(time_type), intent(in) :: time !< Model time
@@ -171,7 +171,6 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, thetao)
   real, dimension(:,:,:),intent(in) :: ho !< Ocean layer thickness [H ~> m or kg m-2]
   type(thermo_var_ptrs), intent(in) :: tv !< structure containing pointers to available thermodynamic fields
   logical :: use_uh !<use uh rather than u
-  real, dimension(:,:,:), optional, intent(in) :: thetao
 
   ! Local variables
   integer :: iyr, imon, iday, ihr, imin, isec, k
@@ -268,7 +267,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh, thetao)
 
   ! For each part, record
   ! sample_traj = .true.
-  if (sample_traj) call record_posn(parts, ho, thetao)
+  if (sample_traj) call record_posn(parts, ho, tv%T)
   if (write_traj) then
     call move_all_trajectories(parts)
     call write_trajectory(parts%trajectories, parts%save_short_traj)
