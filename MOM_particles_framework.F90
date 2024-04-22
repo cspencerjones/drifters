@@ -209,6 +209,7 @@ type :: particles !; private
   logical :: halo_debugging=.False. !< Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. !< True saves only lon,lat,time,id in particle_trajectory.nc
   logical :: ignore_traj=.False. !< If true, then model does not write trajectory data at all
+  logical :: initial_traj=.True. !< If true, then model will write trajectory data before starting the run
   logical :: use_new_predictive_corrective =.False. !< Flag to use Bob's predictive corrective particle scheme- Added by Alon
   integer(kind=8) :: debug_particle_with_id = -1 !< If positive, monitors a part with this id
   type(buffer), pointer :: obuffer_n=>null() !< Buffer for outgoing parts to the north
@@ -264,6 +265,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   logical :: halo_debugging=.False. ! Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. ! True saves only lon,lat,time,id in particle_trajectory.nc
   logical :: ignore_traj=.False. ! If true, then model does not traj trajectory data at all
+  logical :: initial_traj=.True. !< If true, then model will write trajectory data before starting the run
   logical :: use_new_predictive_corrective =.False. ! Flag to use Bob's predictive corrective particle scheme- Added by Alon
   logical :: do_unit_tests=.false. ! Conduct some unit tests
   logical :: input_freq_distribution=.false. ! Flag to show if input distribution is freq or mass dist (=1 if input is a freq dist, =0 to use an input mass dist)
@@ -283,7 +285,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          grid_is_latlon,Lx, &
          grid_is_regular, &
          generate_days, generate_lons, generate_lats, generate_d, &
-         ignore_traj, debug_particle_with_id, read_old_restarts
+         ignore_traj, initial_traj, debug_particle_with_id, read_old_restarts
 
   ! Local variables
   integer :: ierr, iunit, i, j, id_class, is, ie, js, je, np
@@ -499,6 +501,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   parts%traj_write_hrs=traj_write_hrs
   parts%save_short_traj=save_short_traj
   parts%ignore_traj=ignore_traj
+  parts%initial_traj=initial_traj
   parts%verbose_hrs=verbose_hrs
   parts%grd%halo=halo
   parts%grd%Lx=Lx

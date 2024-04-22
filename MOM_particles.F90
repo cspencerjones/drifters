@@ -93,6 +93,8 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
  call parts_chksum(parts, 'read_restart_particles')
  call mpp_clock_end(parts%clock_ior)
 
+
+
  if (really_debug) call print_parts(stderrunit,parts,'particles_init, initial status')
 
 end subroutine particles_init
@@ -255,6 +257,10 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
 
   call particles_to_k_space(parts,ho)
 
+  if (parts%initial_traj) then 
+       call record_posn(parts, ho, tv%T)
+       parts%initial_traj=.False.
+  endif
 
   call evolve_particles(parts)
   if (parts%debug_particle_with_id>0) call monitor_a_part(parts, 'particles_run, after evolve()     ')
