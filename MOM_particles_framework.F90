@@ -636,7 +636,7 @@ integer :: grdi, grdj
   enddo ; enddo
   call mpp_max(latest_start_year)
 
-  current_time_val=float(iyr)+yearday(imon, iday, ihr, imin, isec)/367.
+  current_time_val=float(iyr)+yearday(iyr, imon, iday, ihr, imin, isec)/367.
   if (latest_start_year<=current_time_val) return ! No conflicts!
 
   yr_offset=int(latest_start_year+1.)-iyr
@@ -2034,15 +2034,16 @@ end function samepart
 
 ! ##############################################################################
 
-real function yearday(imon, iday, ihr, imin, isec)
+real function yearday(iyr, imon, iday, ihr, imin, isec)
 ! Arguments
-integer, intent(in) :: imon, iday, ihr, imin, isec
+integer, intent(in) :: iyr, imon, iday, ihr, imin, isec
 
 ! Local variables
 integer :: sec
 integer :: yeardayint
+type(time_type) :: Time_test
 
-   call get_time((set_date(1, imon, iday, ihr, imin, isec) - set_date(1, 1, 1, 0, 0, 0)), sec, yeardayint)
+   call get_time((set_date(iyr, imon, iday, ihr, imin, isec) - set_date(iyr, 1, 1, 0, 0, 0)), sec, yeardayint)
    yearday = float(yeardayint) + (float(ihr) + (float(imin) + float(isec)/60.)/60.)/24.
 
 end function yearday

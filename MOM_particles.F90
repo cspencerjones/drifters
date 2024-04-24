@@ -201,7 +201,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
   ! Manage time
   call get_date(time, iyr, imon, iday, ihr, imin, isec)
   parts%current_year=iyr
-  parts%current_yearday=yearday(imon, iday, ihr, imin, isec)
+  parts%current_yearday=yearday(iyr, imon, iday, ihr, imin, isec)
   ! Turn on sampling of trajectories, verbosity, budgets
   sample_traj=.false.
   if ( (parts%traj_sample_hrs>0)  .and. (.not. parts%ignore_traj) ) then
