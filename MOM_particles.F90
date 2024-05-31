@@ -447,8 +447,9 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   real :: x3, xdot3, xddot3, y3, ydot3, yddot3, xddot3n, yddot3n
   real :: x4, xdot4, xddot4, y4, ydot4, yddot4, xddot4n, yddot4n
   real :: xn, xdotn, xddotn, yn, ydotn, yddotn, xddotnn, yddotnn
+  real :: xdummy, ydummy, xdotdummy, ydotdummy, londummy, latdummy
   real :: dt, dt_2, dt_6, dydl
-  real :: reg_dldx
+  real :: reg_dldx, udummy, vdummy
   integer :: i1,j1,i2,j2,i3,j3,i4,j4
   integer :: stderrunit
   logical :: bounced, on_tangential_plane, error_flag
@@ -487,40 +488,17 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
 
   reg_dldx=min(abs(grd%lon(i+1,j)-grd%lon(i,j)),abs(grd%lon(i,j)-grd%lon(i-1,j)))/grd%dx(i,j)
 
-  ! A1 = A(X1)
   lon1=part%lon; lat1=part%lat
   if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
 
   call  convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
-  !dxdl1=r180_pi/(Rearth*cos(lat1*pi_180))
-  !dydl=r180_pi/Rearth
   uvel1=part%uvel; vvel1=part%vvel
   if (on_tangential_plane) call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
   u1=uvel1*dxdl1; v1=vvel1*dydl
 
 
   !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
-  if (on_tangential_plane) then
-    x2=x1+dt_2*xdot1; y2=y1+dt_2*ydot1
-    xdot2=xdot1+dt_2*xddot1; ydot2=ydot1+dt_2*yddot1
-    call rotpos_from_tang(x2,y2,lon2,lat2)
-    call rotvec_from_tang(lon2,xdot2,ydot2,uvel2,vvel2)
-  else
-    lon2=lon1+dt_2*u1; lat2=lat1+dt_2*v1
-    uvel2=uvel1; vvel2=vvel1
-  endif
-  i=i1;j=j1;xi=part%xi;yj=part%yj
-  call adjust_index_and_ground(grd, lon2, lat2, uvel2, vvel2, i, j, xi, yj, bounced, error_flag, part%id)
-  i2=i; j2=j
-  if (.not.error_flag) then
-    if (debug .and. .not. is_point_in_cell(parts%grd, lon2, lat2, i, j)) error_flag=.true.
-  endif
-  call  convert_from_meters_to_grid(lat2,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl2,dydl,reg_dldx)
-  !dxdl2=r180_pi/(Rearth*cos(lat2*pi_180))
-  if (.not.on_tangential_plane) then
-    call interp_flds(grd, i, j, part%k, xi, yj, uvel2, vvel2)
-  endif
-  u2=uvel2*dxdl2; v2=vvel2*dydl
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1,v1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
 
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
   if (on_tangential_plane) then
@@ -584,6 +562,67 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lonn, latn, uveln, vveln, i, j, xi, yj, bounced, error_flag, part%id)
 end subroutine Runge_Kutta_stepping
+
+! ###############################################################################
+!> Perform an individual step in the Runge-Kutta algorithm
+!subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb, ydotb, lona, lata, lonb, latb, ua,va, ia, ja, ub, vb, reg_dldx, on_tangential_plane)
+subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb, ydotb, lona, lata, lonb, latb, ua,va, ia, ja, i, j, xi, yj, ub, vb, reg_dldx, on_tangential_plane)
+
+  type(particles), pointer :: parts !< Container for all types and memory
+  type(particle), pointer, intent(inout) :: part !< particle
+  real :: dt !< timestep for this Runge-Kutta step
+  real :: xa
+  real :: ya
+  real :: xb
+  real :: yb
+  real :: xdota
+  real :: ydota
+  real :: xdotb
+  real :: ydotb
+  real :: lona
+  real :: lata
+  real :: lonb
+  real :: latb
+  real :: ua
+  real :: va
+  real :: ub
+  real :: vb
+  integer :: ia
+  integer :: ja
+  real :: reg_dldx
+  logical :: on_tangential_plane
+  ! Local variables
+  type(particles_gridded), pointer :: grd
+  real :: dxdl1
+  real :: uvel2, vvel2, u2, v2, dxdl2
+  real :: xdot2, ydot2, yddot2
+  real :: xi, yj, dydl
+  integer :: i, j
+  integer :: stderrunit
+  logical :: bounced, error_flag
+
+  grd=>parts%grd
+
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  if (on_tangential_plane) then
+    xb=xa+dt*xdota; yb=ya+dt*ydota
+    call rotpos_from_tang(xb,yb,lonb,latb)
+  else
+    lonb=lona+dt*ua; latb=lata+dt*va
+  endif
+  bounced = .false.
+  i=ia;j=ja;xi=part%xi;yj=part%yj
+  call adjust_index_and_ground(grd, lonb, latb, ua, va, i, j, xi, yj, bounced, error_flag, part%id)
+
+!  if (.not.error_flag) then
+!    if (debug .and. .not. is_point_in_cell(parts%grd, lonb, latb, i, j)) error_flag=.true.
+!  endif
+  call convert_from_meters_to_grid(latb,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl2,dydl,reg_dldx)
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel2, vvel2)
+  if (on_tangential_plane) call rotvec_to_tang(lonb,uvel2,vvel2,xdotb,ydotb)
+  ub=uvel2*dxdl2; vb=vvel2*dydl
+
+end subroutine Runge_Kutta_step
 
 ! ###############################################################################
 !> Calculate longitude-latitude from tangent plane coordinates
