@@ -501,45 +501,10 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1,v1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
 
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
-  if (on_tangential_plane) then
-    x3=x1+dt_2*xdot2; y3=y1+dt_2*ydot2
-    xdot3=xdot1+dt_2*xddot2; ydot3=ydot1+dt_2*yddot2
-    call rotpos_from_tang(x3,y3,lon3,lat3)
-    call rotvec_from_tang(lon3,xdot3,ydot3,uvel3,vvel3)
-  else
-    lon3=lon1+dt_2*u2; lat3=lat1+dt_2*v2
-    uvel3=uvel1; vvel3=vvel1
-  endif
-  i=i1;j=j1;xi=part%xi;yj=part%yj
-  call adjust_index_and_ground(grd, lon3, lat3, uvel3, vvel3, i, j, xi, yj, bounced, error_flag, part%id)
-  i3=i; j3=j
-  ! if (bounced.and.on_tangential_plane) call rotpos_to_tang(lon3,lat3,x3,y3)
-  call  convert_from_meters_to_grid(lat3,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl3,dydl,reg_dldx)
-  !dxdl3=r180_pi/(Rearth*cos(lat3*pi_180))
-  if (.not.on_tangential_plane) then
-    call interp_flds(grd, i, j, part%k, xi, yj, uvel3, vvel3)
-  endif
-  u3=uvel3*dxdl3; v3=vvel3*dydl
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x3, y3, xdot2, ydot2, xdot3, ydot3, lon1, lat1, lon3, lat3, u2,v2, i1, j1, i, j, xi, yj, u3, v3, reg_dldx, on_tangential_plane)
 
   !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
-  if (on_tangential_plane) then
-    x4=x1+dt*xdot3; y4=y1+dt*ydot3
-    xdot4=xdot1+dt*xddot3; ydot4=ydot1+dt*yddot3
-    call rotpos_from_tang(x4,y4,lon4,lat4)
-    call rotvec_from_tang(lon4,xdot4,ydot4,uvel4,vvel4)
-  else
-    lon4=lon1+dt*u3; lat4=lat1+dt*v3
-    uvel4=uvel1; vvel4=vvel1
-  endif
-  i=i1;j=j1;xi=part%xi;yj=part%yj
-  call adjust_index_and_ground(grd, lon4, lat4, uvel4, vvel4, i, j, xi, yj, bounced, error_flag, part%id)
-  i4=i; j4=j
-  call  convert_from_meters_to_grid(lat4,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl4,dydl,reg_dldx)
-  !dxdl4=r180_pi/(Rearth*cos(lat4*pi_180))
-  if (.not.on_tangential_plane) then
-    call interp_flds(grd, i, j, part%k, xi, yj, uvel4, vvel4)
-  endif
-  u4=uvel4*dxdl4; v4=vvel4*dydl
+  call Runge_Kutta_step(parts, part, dt, x1, y1, x4, y4, xdot3, ydot3, xdot4, ydot4, lon1, lat1, lon4, lat4, u3,v3, i1, j1, i, j, xi, yj, u4, v4, reg_dldx, on_tangential_plane)
 
   !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
   !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
@@ -565,7 +530,6 @@ end subroutine Runge_Kutta_stepping
 
 ! ###############################################################################
 !> Perform an individual step in the Runge-Kutta algorithm
-!subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb, ydotb, lona, lata, lonb, latb, ua,va, ia, ja, ub, vb, reg_dldx, on_tangential_plane)
 subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb, ydotb, lona, lata, lonb, latb, ua,va, ia, ja, i, j, xi, yj, ub, vb, reg_dldx, on_tangential_plane)
 
   type(particles), pointer :: parts !< Container for all types and memory
