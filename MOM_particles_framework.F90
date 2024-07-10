@@ -2240,7 +2240,7 @@ integer :: stderrunit
       posn%lat=this%lat
       posn%k=this%k
       call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
-      posn%theta = bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
+      posn%theta = bilin(grd,thetao(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj) 
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
 !                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
 !                     floor(this%k), this%lon, this%lat, posn%theta  
