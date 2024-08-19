@@ -205,6 +205,7 @@ type :: particles !; private
   !>@}
   logical :: restarted=.false. !< Indicate whether we read state from a restart or not
   logical :: Runge_not_Verlet=.True. !< True=Runge-Kutta, False=Verlet.
+  logical :: xystagger=.False.
   logical :: ignore_missing_restart_parts=.False. !< True allows the model to ignore particles missing in the restart.
   logical :: halo_debugging=.False. !< Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. !< True saves only lon,lat,time,id in particle_trajectory.nc
@@ -212,6 +213,7 @@ type :: particles !; private
   logical :: initial_traj=.True. !< If true, then model will write trajectory data before starting the run
   logical :: use_new_predictive_corrective =.False. !< Flag to use Bob's predictive corrective particle scheme- Added by Alon
   integer(kind=8) :: debug_particle_with_id = -1 !< If positive, monitors a part with this id
+  integer :: nstep=1 !< Number of timestepped (used for staggering particle motion in x and y
   type(buffer), pointer :: obuffer_n=>null() !< Buffer for outgoing parts to the north
   type(buffer), pointer :: ibuffer_n=>null() !< Buffer for incoming parts from the north
   type(buffer), pointer :: obuffer_s=>null() !< Buffer for outgoing parts to the south
@@ -259,6 +261,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   integer :: verbose_hrs=24 ! Period between verbose messages
   real :: Lx=360. ! Length of domain in x direction, used for periodicity (use a huge number for non-periodic)
   logical :: Runge_not_Verlet=.True. ! True=Runge Kutta, False=Verlet.
+  logical :: xystagger=.True. !If true then stagger timestepping, with particle first advected in the xy direction and then in the y direction
   logical :: grid_is_latlon=.True. ! True means that the grid is specified in lat lon, and uses to radius of the earth to convert to distance
   logical :: grid_is_regular=.False. ! Flag to say whether point in cell can be found assuming regular Cartesian grid
   logical :: ignore_missing_restart_parts=.False. ! True Allows the model to ignore particles missing in the restart.
@@ -380,8 +383,10 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
   grd%ocean_depth(is:ie,js:je) = Grid%bathyT(is:ie,js:je)
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:je)
-  grd%dy(is:ie,js:je)=Grid%dyBu(is:ie,js:je)
+!  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:)!je
+  grd%dx(:,:)=Grid%dxCu(:,:)
+!  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:)!je
+  grd%dy(:,:)=Grid%dyCv(:,:)!je
   grd%msk(is:ie,js:je)=Grid%mask2dBu(is:ie,js:je)
   grd%cos(is:ie,js:je)=Grid%cos_rot(is:ie,js:je)
   grd%sin(is:ie,js:je)=Grid%sin_rot(is:ie,js:je)
@@ -562,6 +567,7 @@ integer :: num
 real :: lat_min, lat_max
 logical :: lres
 
+
   grd=>parts%grd
   lat_min = minval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
   lat_max = maxval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
@@ -570,9 +576,9 @@ logical :: lres
   lat_min = max( int((lat_min - lat_start)/dlat)*dlat + lat_start, lat_start)
   lat_max = min( int((lat_max - lat_start)/dlat)*dlat + lat_start, lat_end)
 
-  ie = int( (lon_end-lon_start)/dlon + 0.5 )
-  je = int( (lat_end-lat_start)/dlat + 0.5 )
-  de = int( (abs(d_end)-abs(d_start))/abs(dd)+0.5 )
+  ie = int( (lon_end-lon_start)/dlon - 0.5 )
+  je = int( (lat_end-lat_start)/dlat - 0.5 )
+  de = int( (abs(d_end)-abs(d_start))/abs(dd) - 0.5 )
   !CSJ hard-coded this for now
   !localpart%k_space=.true.
   !localpart%k=0.5
@@ -3615,7 +3621,7 @@ end function bilin
 real function linlinx(grd,fld,i,j,xi,yj)
 ! Arguments
 type(particles_gridded), pointer :: grd
-real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
 integer, intent(in) :: i, j
 ! Local variables
 
@@ -3627,12 +3633,12 @@ end function linlinx
 real function linliny(grd,fld,i,j,xi,yj)
 ! Arguments
 type(particles_gridded), pointer :: grd
-real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
+!real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
 integer, intent(in) :: i, j
 ! Local variables
 
     linliny = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
-
 end function linliny
 
 

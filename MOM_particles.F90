@@ -115,6 +115,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  integer  ::  iu, jv
  kint = ceiling(k)
 
+
  cos_rot=bilin(grd, grd%cos, i, j, xi, yj) ! If true, uses the inverted bilin function
  sin_rot=bilin(grd, grd%sin, i, j, xi, yj)
 
@@ -125,8 +126,8 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     jv=j
  endif
- uo=linlinx(grd, grd%uo(grd%isd:,:,kint), i+1, j, xi, yj)
-
+ !uo=linlinx(grd, grd%uo(:,:,kint), i+1, j, xi,yj)
+ uo=linlinx(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), i+1, j, xi, yj)
  xiu = xi+0.5
  if (xiu>1) then
      xiu= xiu-1.
@@ -134,8 +135,8 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     iu=i
  endif
- vo=linliny(grd, grd%vo(:,grd%jsd:,kint), i, j+1, xi, yj)
-
+ vo=linliny(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), i, j+1, xi, yj)
+ !vo=linliny(grd, grd%vo(:,:,kint), i, j+1, xi, yj)
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
 
@@ -164,7 +165,8 @@ end subroutine interp_flds
 
 
 !> The main driver the steps updates particles
-subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
+
+subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
   ! Arguments
   type(particles), pointer :: parts !< Container for all types and memory
   type(time_type), intent(in) :: time !< Model time
@@ -181,6 +183,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
   real :: grdd_u_particle, grdd_v_particle
   integer :: i, j, Iu, ju, iv, Jv, Iu_off, ju_off, iv_off, Jv_off
   real :: mask
+  real :: dt_adv
   real, dimension(:,:), allocatable :: uC_tmp, vC_tmp, uA_tmp, vA_tmp
   real, dimension(:,:,:),allocatable :: h_upoints, h_vpoints
   real, dimension(:,:), allocatable :: iCount
@@ -226,11 +229,11 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
  ! SPENCER: here is where we need to pass all ocean velocities
 
   if (use_uh) then
-    h_upoints=0.5*(ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd-1:grd%ied-1,grd%jsd:grd%jed,1:grd%ke))
-    h_vpoints=0.5*(ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd-1:grd%jed-1,1:grd%ke))
+    h_upoints=0.5*(ho(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke))
+    h_vpoints=0.5*(ho(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke))
     do k=1,grd%ke
-      grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(:,:,k) / parts%dt / grd%dx
-      grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(:,:,k) / parts%dt / grd%dx
+      grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dy(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv ! parts%dt
+      grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dx(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv
     enddo
   else
     grd%uo(:,:,:) = uo(:,:,:)
@@ -239,17 +242,18 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, use_uh)
   do k=2,grd%ke
       grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
   enddo
-
+  parts%dt = dt_adv
   ! Make sure that gridded values agree with mask  (to get ride of NaN values)
-  do i=grd%isd,grd%ied ; do j=grd%jsd,grd%jed
+!  do i=grd%isd,grd%ied ; do j=grd%jsd,grd%jed
     ! Initializing all gridded values to zero
 !    if (grd%msk(i,j).lt. 0.5) then
 !      grd%uo(i,j,:) = 0.0 ;  grd%vo(i,j,:) = 0.0
 !    endif
 !    if (grd%uo(i,j) .ne. grd%uo(i,j)) grd%uo(i,j)=0.
 !    if (grd%vo(i,j) .ne. grd%vo(i,j)) grd%vo(i,j)=0.
-  enddo; enddo
-
+!  enddo; enddo
+!  write(stderrunit, *) 'uo1, h1, dt1, dy1',  uo(10,5,6), h_upoints(10,5,6), dt_adv, grd%dy(10,5), grd%uo(10,5,6)
+!  write(stderrunit, *) 'h1, h2, hu', ho(11,5,6), ho(10,5,6), h_upoints(10,5,6)
   if (debug) call parts_chksum(parts, 'run parts (top)')
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
@@ -362,7 +366,7 @@ subroutine evolve_particles(parts)
   integer :: i, j
   integer :: grdi, grdj
   integer :: stderrunit
-  logical :: bounced, Runge_not_Verlet
+  logical :: bounced, xystagger
 
   ! Get the stderr unit number
   stderrunit = stderr()
@@ -370,13 +374,11 @@ subroutine evolve_particles(parts)
   ! For convenience
   grd=>parts%grd
 
-  Runge_not_Verlet=parts%Runge_not_Verlet
-
+  xystagger = parts%xystagger
 
   do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts
-      !if (part%static_part .lt. 0.5) then  !Only allow non-static particles to evolve !LUYU: not needed, because all the particles are non-static.
 
         !Checking it everything is ok:
         if (.not. is_point_in_cell(parts%grd, part%lon, part%lat, part%ine, part%jne) ) then
@@ -398,18 +400,19 @@ subroutine evolve_particles(parts)
 !       Interpolate gridded velocity fields to part and generate uvel and vvel
         call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
           !Time stepping schemes:       
-        call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        !call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        if (xystagger) then
+           call Runge_Kutta_xystagger(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        else
+           call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        endif
         
         part%uvel=uveln
         part%vvel=vveln
 
-        if (Runge_not_Verlet) then
-          part%lon=lonn  ;   part%lat=latn
-          part%ine=i     ;   part%jne=j
-          part%xi=xi     ;   part%yj=yj
-        else
-          !if (.not. interactive_particles_on) call update_verlet_position(parts,part)
-        endif
+        part%lon=lonn  ;   part%lat=latn
+        part%ine=i     ;   part%jne=j
+        part%xi=xi     ;   part%yj=yj
 
         !call interp_flds(grd, i, j, xi, yj, part%uo, part%vo, part%ui, part%vi, part%ua, part%va, part%ssh_x, part%ssh_y, part%sst)
         !if (debug) call print_part(stderr(), part, 'evolve_particle, final posn.')
@@ -496,25 +499,24 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
   if (on_tangential_plane) call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
   u1=uvel1*dxdl1; v1=vvel1*dydl
 
-
   !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
   call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1,v1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
-
+  
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
   call Runge_Kutta_step(parts, part, dt_2, x1, y1, x3, y3, xdot2, ydot2, xdot3, ydot3, lon1, lat1, lon3, lat3, u2,v2, i1, j1, i, j, xi, yj, u3, v3, reg_dldx, on_tangential_plane)
 
+
   !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
   call Runge_Kutta_step(parts, part, dt, x1, y1, x4, y4, xdot3, ydot3, xdot4, ydot4, lon1, lat1, lon4, lat4, u3,v3, i1, j1, i, j, xi, yj, u4, v4, reg_dldx, on_tangential_plane)
+
 
   !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
   !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
   if (on_tangential_plane) then
     xn=x1+dt_6*( (xdot1+xdot4)+2.*(xdot2+xdot3) )
     yn=y1+dt_6*( (ydot1+ydot4)+2.*(ydot2+ydot3) )
-    xdotn=xdot1+dt_6*( (xddot1+xddot4)+2.*(xddot2+xddot3) )
-    ydotn=ydot1+dt_6*( (yddot1+yddot4)+2.*(yddot2+yddot3) )
-    xddotn=( (xddot1n+xddot4n)+2.*(xddot2n+xddot3n) )/6.  !Alon
-    yddotn=( (yddot1n+yddot4n)+2.*(yddot2n+yddot3n) )/6.  !Alon
+    xdotn=( (xdot1+xdot4)+2.*(xdot2+xdot3) )/6.
+    ydotn=( (ydot1+ydot4)+2.*(ydot2+ydot3) )/6.
     call rotpos_from_tang(xn,yn,lonn,latn)
     call rotvec_from_tang(lonn,xdotn,ydotn,uveln,vveln)
   else
@@ -523,10 +525,328 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
     uveln=part%uvel
     vveln=part%vvel
   endif
-
+  write(stderrunit,*)'uvelstep =', part%uvel, u1, u2, u3, u4
+  write(stderrunit,*)'vvelstep =', part%vvel, v1, v2, v3, v4 
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lonn, latn, uveln, vveln, i, j, xi, yj, bounced, error_flag, part%id)
 end subroutine Runge_Kutta_stepping
+
+
+subroutine Runge_Kutta_xystagger(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+  ! Arguments
+  type(particles), pointer :: parts !< Container for all types and memory
+  type(particle), pointer, intent(inout) :: part !< particle
+  real, intent(out) :: uveln !< New zonal velocity (m/s)
+  real, intent(out) :: vveln !< New meridional velocity (m/s)
+  real, intent(out) :: lonn !< New longitude (degree E)
+  real, intent(out) :: latn !< New latitude (degree N)
+  integer, intent(out) :: i !< New i-index of containing cell
+  integer, intent(out) :: j !< New i-index of containing cell
+  real, intent(out) :: xi !< New non-dimensional x-position
+  real, intent(out) :: yj !< New non-dimensional y-position
+  ! Local variables
+  type(particles_gridded), pointer :: grd
+  real :: uvel1, vvel1, lon1, lat1, u1, v1, dxdl1
+  real :: uvel2, vvel2, lon2, lat2, u2, v2, dxdl2
+  real :: uvel3, vvel3, lon3, lat3, u3, v3, dxdl3
+  real :: uvel4, vvel4, lon4, lat4, u4, v4, dxdl4
+  real :: x1, xdot1, xddot1, y1, ydot1, yddot1, xddot1n, yddot1n
+  real :: x2, xdot2, xddot2, y2, ydot2, yddot2, xddot2n, yddot2n
+  real :: x3, xdot3, xddot3, y3, ydot3, yddot3, xddot3n, yddot3n
+  real :: x4, xdot4, xddot4, y4, ydot4, yddot4, xddot4n, yddot4n
+  real :: xn, xdotn, xddotn, yn, ydotn, yddotn, xddotnn, yddotnn
+  real :: xdummy, ydummy, xdotdummy, ydotdummy, londummy, latdummy
+  real :: dt, dt_2, dt_6, dydl
+  real :: reg_dldx, udummy, vdummy
+  integer :: i1,j1,i2,j2,i3,j3,i4,j4
+  integer :: stderrunit
+  logical :: bounced, on_tangential_plane, error_flag
+  ! 4th order Runge-Kutta to solve:
+  !    d/dt X = V,  d/dt V = A
+  ! with I.C.'s:
+  !    X=X1 and V=V1
+  !
+  !  A1 = A(X1)
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
+  !  X4 = X1+  dt*V3 ; V4 = V1+  dt*A3; A4=A(X4)
+  !
+  !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
+  !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
+
+
+  ! Get the stderr unit number
+  stderrunit = stderr()
+
+  !If x-step is first
+  if (mod(parts%nstep,2).eq.0) then
+    call Runge_xtheny_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+    part%lon=lonn  ;   part%lat=latn
+    part%ine=i     ;   part%jne=j
+    part%xi=xi     ;   part%yj=yj
+    call Runge_ythenx_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+  else
+    call Runge_ythenx_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+    part%lon=lonn  ;   part%lat=latn
+    part%ine=i     ;   part%jne=j
+    part%xi=xi     ;   part%yj=yj
+    call Runge_xtheny_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+  endif
+  parts%nstep = parts%nstep + 1
+
+  end subroutine Runge_Kutta_xystagger
+
+  subroutine Runge_xtheny_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+  ! Arguments
+  type(particles), pointer :: parts !< Container for all types and memory
+  type(particle), pointer, intent(inout) :: part !< particle
+  real, intent(out) :: uveln !< New zonal velocity (m/s)
+  real, intent(out) :: vveln !< New meridional velocity (m/s)
+  real, intent(out) :: lonn !< New longitude (degree E)
+  real, intent(out) :: latn !< New latitude (degree N)
+  integer, intent(out) :: i !< New i-index of containing cell
+  integer, intent(out) :: j !< New i-index of containing cell
+  real, intent(out) :: xi !< New non-dimensional x-position
+  real, intent(out) :: yj !< New non-dimensional y-position
+  ! Local variables
+  type(particles_gridded), pointer :: grd
+  real :: uvel1, vvel1, lon1, lat1, u1, v1, dxdl1
+  real :: uvel2, vvel2, lon2, lat2, u2, v2, dxdl2
+  real :: uvel3, vvel3, lon3, lat3, u3, v3, dxdl3
+  real :: uvel4, vvel4, lon4, lat4, u4, v4, dxdl4
+  real :: x1, xdot1, xddot1, y1, ydot1, yddot1, xddot1n, yddot1n
+  real :: x2, xdot2, xddot2, y2, ydot2, yddot2, xddot2n, yddot2n
+  real :: x3, xdot3, xddot3, y3, ydot3, yddot3, xddot3n, yddot3n
+  real :: x4, xdot4, xddot4, y4, ydot4, yddot4, xddot4n, yddot4n
+  real :: xn, xdotn, xddotn, yn, ydotn, yddotn, xddotnn, yddotnn
+  real :: xdummy, ydummy, xdotdummy, ydotdummy, londummy, latdummy
+  real :: dt, dt_2, dt_6, dydl
+  real :: reg_dldx, udummy, vdummy
+  integer :: i1,j1,i2,j2,i3,j3,i4,j4
+  integer :: stderrunit
+  logical :: bounced, on_tangential_plane, error_flag
+  ! 4th order Runge-Kutta to solve:
+  !    d/dt X = V,  d/dt V = A
+  ! with I.C.'s:
+  !    X=X1 and V=V1
+  !
+  !  A1 = A(X1)
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
+  !  X4 = X1+  dt*V3 ; V4 = V1+  dt*A3; A4=A(X4)
+  !
+  !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
+
+  ! Get the stderr unit number
+  stderrunit = stderr()
+
+  ! For convenience
+  grd=>parts%grd
+  ! Common constants
+  dt=parts%dt
+  dt_2=0.5*dt
+  dt_6=dt/6.
+
+  i=part%ine
+  j=part%jne
+  xi=part%xi
+  yj=part%yj
+  bounced=.false.
+  on_tangential_plane=.false.
+  if ((part%lat>89.) .and. (parts%grd%grid_is_latlon)) on_tangential_plane=.true.
+  i1=i;j1=j
+
+  reg_dldx=min(abs(grd%lon(i+1,j)-grd%lon(i,j)),abs(grd%lon(i,j)-grd%lon(i-1,j)))/grd%dx(i,j)
+
+
+  lon1=part%lon; lat1=part%lat
+  if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1) 
+  call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1) 
+  if (on_tangential_plane) then 
+    call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
+    ydot1=0.0
+  else
+    vvel1 = 0.0
+  endif
+
+  u1=uvel1*dxdl1; v1=vvel1*dydl
+
+
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1,vvel1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    ydot2=0.0
+  else
+    v2 = 0.0
+  endif
+
+  !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x3, y3, xdot2, ydot2, xdot3, ydot3, lon1, lat1, lon3, lat3, u2,v2, i1, j1, i, j, xi, yj, u3, v3, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    ydot3=0.0
+  else
+    v3 = 0.0
+  endif
+
+  !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
+  call Runge_Kutta_step(parts, part, dt, x1, y1, x4, y4, xdot3, ydot3, xdot4, ydot4, lon1, lat1, lon4, lat4, u3,v3, i1, j1, i, j, xi, yj, u4, v4, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    ydot4=0.0
+  else
+    v4 = 0.0
+  endif
+
+  !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
+  !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
+  if (on_tangential_plane) then
+    xn=x1+dt_6*( (xdot1+xdot4)+2.*(xdot2+xdot3) )
+    yn=y1!+dt_6*( (ydot1+ydot4)+2.*(ydot2+ydot3) )
+    xdotn=( (xdot1+xdot4)+2.*(xdot2+xdot3) )/6.
+    ydotn=0.0
+    call rotpos_from_tang(xn,yn,lonn,latn)
+    call rotvec_from_tang(lonn,xdotn,ydotn,uveln,vveln)
+  else
+    lonn=part%lon+dt_6*( (u1+u4)+2.*(u2+u3) )
+    latn=part%lat!+dt_6*( (v1+v4)+2.*(v2+v3) )
+    uveln=part%uvel
+    vveln=0.0
+  endif
+
+  i=i1;j=j1;xi=part%xi;yj=part%yj
+  call adjust_index_and_ground(grd, lonn, latn, uveln, vveln, i, j, xi, yj, bounced, error_flag, part%id)
+end subroutine Runge_xtheny_step
+
+
+  subroutine Runge_ythenx_step(parts, part, uveln, vveln, lonn, latn, i, j, xi, yj)
+  ! Arguments
+  type(particles), pointer :: parts !< Container for all types and memory
+  type(particle), pointer, intent(inout) :: part !< particle
+  real, intent(out) :: uveln !< New zonal velocity (m/s)
+  real, intent(out) :: vveln !< New meridional velocity (m/s)
+  real, intent(out) :: lonn !< New longitude (degree E)
+  real, intent(out) :: latn !< New latitude (degree N)
+  integer, intent(out) :: i !< New i-index of containing cell
+  integer, intent(out) :: j !< New i-index of containing cell
+  real, intent(out) :: xi !< New non-dimensional x-position
+  real, intent(out) :: yj !< New non-dimensional y-position
+  ! Local variables
+  type(particles_gridded), pointer :: grd
+  real :: uvel1, vvel1, lon1, lat1, u1, v1, dxdl1
+  real :: uvel2, vvel2, lon2, lat2, u2, v2, dxdl2
+  real :: uvel3, vvel3, lon3, lat3, u3, v3, dxdl3
+  real :: uvel4, vvel4, lon4, lat4, u4, v4, dxdl4
+  real :: x1, xdot1, xddot1, y1, ydot1, yddot1, xddot1n, yddot1n
+  real :: x2, xdot2, xddot2, y2, ydot2, yddot2, xddot2n, yddot2n
+  real :: x3, xdot3, xddot3, y3, ydot3, yddot3, xddot3n, yddot3n
+  real :: x4, xdot4, xddot4, y4, ydot4, yddot4, xddot4n, yddot4n
+  real :: xn, xdotn, xddotn, yn, ydotn, yddotn, xddotnn, yddotnn
+  real :: xdummy, ydummy, xdotdummy, ydotdummy, londummy, latdummy
+  real :: dt, dt_2, dt_6, dydl
+  real :: reg_dldx, udummy, vdummy
+  integer :: i1,j1,i2,j2,i3,j3,i4,j4
+  integer :: stderrunit
+  logical :: bounced, on_tangential_plane, error_flag
+  ! 4th order Runge-Kutta to solve:
+  !    d/dt X = V,  d/dt V = A
+  ! with I.C.'s:
+  !    X=X1 and V=V1
+  !
+  !  A1 = A(X1)
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
+  !  X4 = X1+  dt*V3 ; V4 = V1+  dt*A3; A4=A(X4)
+  !
+  !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
+
+  ! Get the stderr unit number
+  stderrunit = stderr()
+
+  ! For convenience
+  grd=>parts%grd
+  ! Common constants
+  dt=parts%dt
+  dt_2=0.5*dt
+  dt_6=dt/6.
+
+  i=part%ine
+  j=part%jne
+  xi=part%xi
+  yj=part%yj
+  bounced=.false.
+  on_tangential_plane=.false.
+  if ((part%lat>89.) .and. (parts%grd%grid_is_latlon)) on_tangential_plane=.true.
+  i1=i;j1=j
+
+  reg_dldx=min(abs(grd%lon(i+1,j)-grd%lon(i,j)),abs(grd%lon(i,j)-grd%lon(i-1,j)))/grd%dx(i,j)
+
+
+  lon1=part%lon; lat1=part%lat
+  if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
+  call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1)
+  
+  if (on_tangential_plane) then
+    call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
+    xdot1=0.0
+  else
+    uvel1 = 0.0
+  endif
+
+  u1=uvel1*dxdl1; v1=vvel1*dydl
+
+
+  !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1, v1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    xdot2=0.0
+  else
+    u2 = 0.0
+  endif
+
+  !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
+  call Runge_Kutta_step(parts, part, dt_2, x1, y1, x3, y3, xdot2, ydot2, xdot3, ydot3, lon1, lat1, lon3, lat3, u2, v2, i1, j1, i, j, xi, yj, u3, v3, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    xdot3=0.0
+  else
+    u3 = 0.0
+  endif
+
+  !  X4 = X1+dt*V3 ; V4 = V1+dt*A3; A4=A(X4)
+  call Runge_Kutta_step(parts, part, dt, x1, y1, x4, y4, xdot3, ydot3, xdot4, ydot4, lon1, lat1, lon4, lat4, u3, v3, i1, j1, i, j, xi, yj, u4, v4, reg_dldx, on_tangential_plane)
+
+  if (on_tangential_plane) then
+    xdot4=0.0
+  else
+    u4 = 0.0
+  endif
+
+
+  !  Xn = X1+dt*(V1+2*V2+2*V3+V4)/6
+  !  Vn = V1+dt*(A1+2*A2+2*A3+A4)/6
+  if (on_tangential_plane) then
+    xn=x1!+dt_6*( (xdot1+xdot4)+2.*(xdot2+xdot3) )
+    yn=y1+dt_6*( (ydot1+ydot4)+2.*(ydot2+ydot3) )
+    xdotn=0.0
+    ydotn=( (ydot1+ydot4)+2.*(ydot2+ydot3) )/6.
+    call rotpos_from_tang(xn,yn,lonn,latn)
+    call rotvec_from_tang(lonn,xdotn,ydotn,uveln,vveln)
+  else
+    lonn=part%lon!+dt_6*( (u1+u4)+2.*(u2+u3) )
+    latn=part%lat+dt_6*( (v1+v4)+2.*(v2+v3) )
+    uveln=0.0
+    vveln=part%vvel
+  endif
+
+  i=i1;j=j1;xi=part%xi;yj=part%yj
+  call adjust_index_and_ground(grd, lonn, latn, uveln, vveln, i, j, xi, yj, bounced, error_flag, part%id)
+end subroutine Runge_ythenx_step
+
 
 ! ###############################################################################
 !> Perform an individual step in the Runge-Kutta algorithm
@@ -565,6 +885,8 @@ subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb
   integer :: stderrunit
   logical :: bounced, error_flag
 
+  ! Get the stderr unit number
+  stderrunit = stderr()
   grd=>parts%grd
 
   !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
