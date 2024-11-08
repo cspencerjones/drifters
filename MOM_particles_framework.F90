@@ -32,8 +32,8 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=19 ! size of buffer dimension for comms
-integer :: buffer_width_traj=16  
+integer :: buffer_width=20 ! size of buffer dimension for comms
+integer :: buffer_width_traj=17  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -1302,12 +1302,20 @@ integer, intent(in) :: n !< Position in buffer to place part
 !integer, intent(in) :: max_bonds  ! Change this later
 ! Local variables
 integer :: counter, k, max_bonds, id_cnt, id_ij
-
+integer :: kspace_int
 
   max_bonds=0
 
   if (.not.associated(buff)) call increase_ibuffer(buff,n,buffer_width)
   if (n>buff%size) call increase_ibuffer(buff,n,buffer_width)
+
+
+ if (part%k_space) then
+   kspace_int=1
+ else
+   kspace_int=0
+ endif
+
 
   counter = 0
   call push_buffer_value(buff%data(:,n), counter, part%lon)
@@ -1328,7 +1336,9 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, part%ine)
   call push_buffer_value(buff%data(:,n), counter, part%jne)
   call push_buffer_value(buff%data(:,n), counter, part%k)
+  call push_buffer_value(buff%data(:,n), counter, kspace_int)
   call push_buffer_value(buff%data(:,n), counter, part%halo_part)
+
 
 
 end subroutine pack_part_into_buffer2
@@ -1426,6 +1436,7 @@ type(particle), pointer :: this
 integer :: other_part_ine, other_part_jne
 integer :: counter, k, max_bonds, id_cnt, id_ij,tmp
 integer(kind=8) :: id
+integer :: kspace_int
 integer :: stderrunit
 logical :: force_app
 logical :: quick
@@ -1438,6 +1449,8 @@ logical :: quick
 
   force_app = .false.
   if(present(force_append)) force_app = force_append
+
+
 
   counter = 0
   call pull_buffer_value(buff%data(:,n), counter, localpart%lon)
@@ -1460,7 +1473,14 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%ine)
   call pull_buffer_value(buff%data(:,n), counter, localpart%jne)
   call pull_buffer_value(buff%data(:,n), counter, localpart%k)
+  call pull_buffer_value(buff%data(:,n), counter, kspace_int)
   call pull_buffer_value(buff%data(:,n), counter, localpart%halo_part)
+
+ if (kspace_int>0.5) then
+   localpart%k_space=.true.
+ else
+   localpart%k_space=.false.
+ endif
 
 
   !These quantities no longer need to be passed between processors
@@ -1642,7 +1662,8 @@ end subroutine increase_ibuffer
     buff%data(13,n)=traj%lat_old !Alon
     buff%data(14,n)=traj%particle_num !Alon
     buff%data(15,n)=traj%k
-    buff%data(16,n)=traj%depth
+    buff%data(16,n)=traj%k_space
+    buff%data(17,n)=traj%depth
 
   end subroutine pack_traj_into_buffer2
 
@@ -1674,7 +1695,8 @@ end subroutine increase_ibuffer
     traj%lat_old=buff%data(13,n) !Alon
     traj%particle_num=buff%data(14,n)
     traj%k=buff%data(15,n) 
-    traj%depth=buff%data(16,n)
+    traj%k_space=buff%data(16,n)
+    traj%depth=buff%data(17,n)
 
     call append_posn(first, traj)
 
@@ -2231,6 +2253,7 @@ real,dimension(:,:,:), intent(in) :: h
 real,dimension(:,:,:), optional, intent(in) :: thetao
 ! Local variables
 type(xyt) :: posn
+logical :: kspace_copy
 type(particle), pointer :: this
 integer :: grdi, grdj
 type(particles_gridded), pointer :: grd
@@ -2245,7 +2268,8 @@ integer :: stderrunit
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
-      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
+      kspace_copy = this%k_space
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,kspace_copy)
       posn%theta = 10.0 ! bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
 !                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
@@ -3164,8 +3188,10 @@ integer :: klev
 real :: rdepth
 integer :: stderrunit
 real, dimension(grd%ke) :: hdepth1D
-real, dimension(grd%ke) :: hdepth1Dcum
-  ! Get the stderr unit number                                                 
+real, dimension(grd%ke) :: hdepth1Dcum                                                
+
+  ! Get the stderr unit number
+  stderrunit=stderr()
 
 if (k_space)then
    return
@@ -3185,6 +3211,7 @@ enddo
    k = find_layer1D(grd, depth,hdepth1Dcum)
 
 k_space=.true.
+
 
 end subroutine find_layer
 

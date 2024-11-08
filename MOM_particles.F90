@@ -235,6 +235,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
       grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dy(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv ! parts%dt
       grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dx(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv
     enddo
+    !parts%dt = dt_adv
   else
     grd%uo(:,:,:) = uo(:,:,:)
     grd%vo(:,:,:) = vo(:,:,:)
@@ -252,8 +253,6 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
 !    if (grd%uo(i,j) .ne. grd%uo(i,j)) grd%uo(i,j)=0.
 !    if (grd%vo(i,j) .ne. grd%vo(i,j)) grd%vo(i,j)=0.
 !  enddo; enddo
-!  write(stderrunit, *) 'uo1, h1, dt1, dy1',  uo(10,5,6), h_upoints(10,5,6), dt_adv, grd%dy(10,5), grd%uo(10,5,6)
-!  write(stderrunit, *) 'h1, h2, hu', ho(11,5,6), ho(10,5,6), h_upoints(10,5,6)
   if (debug) call parts_chksum(parts, 'run parts (top)')
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
@@ -336,7 +335,6 @@ subroutine particles_to_z_space(parts,h)
 
    ! Get the stderr and stdlog unit numbers
    stderrunit=stderr()
-
 
    ! For convenience 
    grd=>parts%grd
@@ -525,8 +523,6 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
     uveln=part%uvel
     vveln=part%vvel
   endif
-  write(stderrunit,*)'uvelstep =', part%uvel, u1, u2, u3, u4
-  write(stderrunit,*)'vvelstep =', part%vvel, v1, v2, v3, v4 
   i=i1;j=j1;xi=part%xi;yj=part%yj
   call adjust_index_and_ground(grd, lonn, latn, uveln, vveln, i, j, xi, yj, bounced, error_flag, part%id)
 end subroutine Runge_Kutta_stepping
