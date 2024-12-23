@@ -132,7 +132,7 @@ type(restart_file_type) :: parts_restart
 type(restart_file_type) :: parts_bond_restart
 integer :: nparts, nbonds
 integer :: n_static_parts
-logical :: check_bond_quality
+logical :: check_bond_quality, kspace_copy
 character(len=40) :: restart_time
 type(particles_gridded), pointer :: grd
 real, allocatable, dimension(:) :: lon,          &
@@ -237,7 +237,8 @@ integer :: grdi, grdj
     this=>parts%list(grdi,grdj)%first
     do while(associated(this))
       i = i + 1
-      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
+      kspace_copy = this%k_space
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,kspace_copy)
       lon(i) = this%lon; lat(i) = this%lat; depth(i) = this%depth
       uvel(i) = this%uvel; vvel(i) = this%vvel
       ine(i) = this%ine; jne(i) = this%jne
