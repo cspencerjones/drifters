@@ -100,12 +100,13 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
 end subroutine particles_init
 
 
-subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
+subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
 ! Arguments
  type(particles_gridded), pointer :: grd
  integer, intent(in) :: i, j
  real, intent(in) :: k
  real, intent(in) :: xi, yj
+ real, intent(in) :: x, y
  real, intent(out) :: uo, vo
  ! Local variables
  real :: cos_rot, sin_rot
@@ -127,7 +128,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
     jv=j
  endif
  !uo=linlinx(grd, grd%uo(:,:,kint), i+1, j, xi,yj)
- uo=linlinx(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), i+1, j, xi, yj)
+ uo=linlinx(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i+1, j, xi, yj)
  xiu = xi+0.5
  if (xiu>1) then
      xiu= xiu-1.
@@ -135,7 +136,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo)
  else
     iu=i
  endif
- vo=linliny(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), i, j+1, xi, yj)
+ vo=linliny(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i, j+1, xi, yj)
  !vo=linliny(grd, grd%vo(:,:,kint), i, j+1, xi, yj)
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
@@ -232,27 +233,20 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
     h_upoints=0.5*(ho(grd%isd+1:grd%ied+1,grd%jsd:grd%jed,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke))
     h_vpoints=0.5*(ho(grd%isd:grd%ied,grd%jsd+1:grd%jed+1,1:grd%ke)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,1:grd%ke))
     do k=1,grd%ke
-      grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dy(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv ! parts%dt
-      grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / grd%dx(grd%isd:grd%ied,grd%jsd:grd%jed) / dt_adv
+      grd%uo(:,:,k) = uo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_upoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / dt_adv ! parts%dt
+      grd%vo(:,:,k) = vo(grd%isd:grd%ied,grd%jsd:grd%jed,k) /h_vpoints(grd%isd:grd%ied,grd%jsd:grd%jed,k) / dt_adv
     enddo
     !parts%dt = dt_adv
   else
-    grd%uo(:,:,:) = uo(:,:,:)
-    grd%vo(:,:,:) = vo(:,:,:)
+    do k=1,grd%ke
+      grd%uo(:,:,k) = uo(:,:,k)*grd%dy(:,:)
+      grd%vo(:,:,k) = vo(:,:,k)*grd%dx(:,:)
+    enddo
   endif
   do k=2,grd%ke
       grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
   enddo
   parts%dt = dt_adv
-  ! Make sure that gridded values agree with mask  (to get ride of NaN values)
-!  do i=grd%isd,grd%ied ; do j=grd%jsd,grd%jed
-    ! Initializing all gridded values to zero
-!    if (grd%msk(i,j).lt. 0.5) then
-!      grd%uo(i,j,:) = 0.0 ;  grd%vo(i,j,:) = 0.0
-!    endif
-!    if (grd%uo(i,j) .ne. grd%uo(i,j)) grd%uo(i,j)=0.
-!    if (grd%vo(i,j) .ne. grd%vo(i,j)) grd%vo(i,j)=0.
-!  enddo; enddo
   if (debug) call parts_chksum(parts, 'run parts (top)')
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
@@ -396,7 +390,7 @@ subroutine evolve_particles(parts)
         endif
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
 !       Interpolate gridded velocity fields to part and generate uvel and vvel
-        call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel)
+        call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel, part%lon, part%lat)
           !Time stepping schemes:       
         !call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
         if (xystagger) then
@@ -658,7 +652,7 @@ subroutine Runge_Kutta_xystagger(parts, part, uveln, vveln, lonn, latn, i, j, xi
   lon1=part%lon; lat1=part%lat
   if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1) 
   call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
-  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1) 
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1, lon1, lat1) 
   if (on_tangential_plane) then 
     call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
     ydot1=0.0
@@ -783,7 +777,7 @@ end subroutine Runge_xtheny_step
   lon1=part%lon; lat1=part%lat
   if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
   call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
-  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1)
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1,lon1,lat1)
   
   if (on_tangential_plane) then
     call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
@@ -900,7 +894,7 @@ subroutine Runge_Kutta_step(parts, part, dt, xa, ya, xb, yb, xdota, ydota, xdotb
 !    if (debug .and. .not. is_point_in_cell(parts%grd, lonb, latb, i, j)) error_flag=.true.
 !  endif
   call convert_from_meters_to_grid(latb,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl2,dydl,reg_dldx)
-  call interp_flds(grd, i, j, part%k, xi, yj, uvel2, vvel2)
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel2, vvel2,lonb,latb)
   if (on_tangential_plane) call rotvec_to_tang(lonb,uvel2,vvel2,xdotb,ydotb)
   ub=uvel2*dxdl2; vb=vvel2*dydl
 
