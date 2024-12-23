@@ -2271,13 +2271,16 @@ integer :: stderrunit
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
+
+      
       kspace_copy = this%k_space
       call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,kspace_copy)
       if (grd%no_TS) then
          posn%theta = -999.0 
       else 
-          posn%theta = bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
+          posn%theta = bilin(grd,thetao(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj)  
       endif
+
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
 !                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
 !                     floor(this%k), this%lon, this%lat, posn%theta  
