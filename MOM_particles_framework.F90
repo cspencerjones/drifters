@@ -32,8 +32,8 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=19 ! size of buffer dimension for comms
-integer :: buffer_width_traj=16  
+integer :: buffer_width=20 ! size of buffer dimension for comms
+integer :: buffer_width_traj=17  
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -73,7 +73,7 @@ public move_trajectory, move_all_trajectories
 public find_cell, find_cell_by_search, count_parts, is_point_in_cell, pos_within_cell
 public find_layer, find_depth
 public bilin, yearday, parts_chksum, list_chksum, count_parts_in_list
-public linlinx, linliny
+public linlinx, linliny, jacob2D
 public checksum_gridded
 public grd_chksum2,grd_chksum3
 public fix_restart_dates, offset_part_dates
@@ -111,6 +111,7 @@ type :: particles_gridded
   integer :: pe_W !< MPI PE index of PE to the west
   logical :: grid_is_latlon !< Flag to say whether the coordinate is in lat-lon degrees, or meters
   logical :: grid_is_regular !< Flag to say whether point in cell can be found assuming regular Cartesian grid
+  logical :: no_TS
   real :: Lx !< Length of the domain in x direction
   real, dimension(:,:), allocatable :: lon !< Longitude of cell corners (degree E)
   real, dimension(:,:), allocatable :: lat !< Latitude of cell corners (degree N)
@@ -205,6 +206,7 @@ type :: particles !; private
   !>@}
   logical :: restarted=.false. !< Indicate whether we read state from a restart or not
   logical :: Runge_not_Verlet=.True. !< True=Runge-Kutta, False=Verlet.
+  logical :: xystagger=.False.
   logical :: ignore_missing_restart_parts=.False. !< True allows the model to ignore particles missing in the restart.
   logical :: halo_debugging=.False. !< Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. !< True saves only lon,lat,time,id in particle_trajectory.nc
@@ -212,6 +214,7 @@ type :: particles !; private
   logical :: initial_traj=.True. !< If true, then model will write trajectory data before starting the run
   logical :: use_new_predictive_corrective =.False. !< Flag to use Bob's predictive corrective particle scheme- Added by Alon
   integer(kind=8) :: debug_particle_with_id = -1 !< If positive, monitors a part with this id
+  integer :: nstep=1 !< Number of timestepped (used for staggering particle motion in x and y
   type(buffer), pointer :: obuffer_n=>null() !< Buffer for outgoing parts to the north
   type(buffer), pointer :: ibuffer_n=>null() !< Buffer for incoming parts from the north
   type(buffer), pointer :: obuffer_s=>null() !< Buffer for outgoing parts to the south
@@ -259,9 +262,11 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   integer :: verbose_hrs=24 ! Period between verbose messages
   real :: Lx=360. ! Length of domain in x direction, used for periodicity (use a huge number for non-periodic)
   logical :: Runge_not_Verlet=.True. ! True=Runge Kutta, False=Verlet.
+  logical :: xystagger=.True. !If true then stagger timestepping, with particle first advected in the xy direction and then in the y direction
   logical :: grid_is_latlon=.True. ! True means that the grid is specified in lat lon, and uses to radius of the earth to convert to distance
   logical :: grid_is_regular=.False. ! Flag to say whether point in cell can be found assuming regular Cartesian grid
   logical :: ignore_missing_restart_parts=.False. ! True Allows the model to ignore particles missing in the restart.
+  logical :: no_TS=.False.
   logical :: halo_debugging=.False. ! Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. ! True saves only lon,lat,time,id in particle_trajectory.nc
   logical :: ignore_traj=.False. ! If true, then model does not traj trajectory data at all
@@ -282,7 +287,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          parallel_reprod, use_slow_find, ignore_ij_restart, use_new_predictive_corrective, halo_debugging, &
          fix_restart_dates, use_roundoff_fix, Runge_not_Verlet, &
          restart_input_dir, old_bug_bilin,do_unit_tests, force_all_pes_traj, &
-         grid_is_latlon,Lx, &
+         grid_is_latlon,Lx, no_TS, &
          grid_is_regular, &
          generate_days, generate_lons, generate_lats, generate_d, &
          ignore_traj, initial_traj, debug_particle_with_id, read_old_restarts
@@ -380,8 +385,10 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
   grd%ocean_depth(is:ie,js:je) = Grid%bathyT(is:ie,js:je)
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:je)
-  grd%dy(is:ie,js:je)=Grid%dyBu(is:ie,js:je)
+!  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:)!je
+  grd%dx(:,:)=Grid%dxCu(:,:)
+!  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:)!je
+  grd%dy(:,:)=Grid%dyCv(:,:)!je
   grd%msk(is:ie,js:je)=Grid%mask2dBu(is:ie,js:je)
   grd%cos(is:ie,js:je)=Grid%cos_rot(is:ie,js:je)
   grd%sin(is:ie,js:je)=Grid%sin_rot(is:ie,js:je)
@@ -505,6 +512,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   parts%verbose_hrs=verbose_hrs
   parts%grd%halo=halo
   parts%grd%Lx=Lx
+  parts%grd%no_TS=no_TS
   parts%grd%grid_is_latlon=grid_is_latlon
   parts%grd%grid_is_regular=grid_is_regular
   parts%Runge_not_Verlet=Runge_not_Verlet
@@ -562,6 +570,7 @@ integer :: num
 real :: lat_min, lat_max
 logical :: lres
 
+
   grd=>parts%grd
   lat_min = minval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
   lat_max = maxval( grd%lat(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
@@ -570,9 +579,9 @@ logical :: lres
   lat_min = max( int((lat_min - lat_start)/dlat)*dlat + lat_start, lat_start)
   lat_max = min( int((lat_max - lat_start)/dlat)*dlat + lat_start, lat_end)
 
-  ie = int( (lon_end-lon_start)/dlon + 0.5 )
-  je = int( (lat_end-lat_start)/dlat + 0.5 )
-  de = int( (abs(d_end)-abs(d_start))/abs(dd)+0.5 )
+  ie = int( (lon_end-lon_start)/dlon - 0.5 )
+  je = int( (lat_end-lat_start)/dlat - 0.5 )
+  de = int( (abs(d_end)-abs(d_start))/abs(dd) - 0.5 )
   !CSJ hard-coded this for now
   !localpart%k_space=.true.
   !localpart%k=0.5
@@ -1296,12 +1305,20 @@ integer, intent(in) :: n !< Position in buffer to place part
 !integer, intent(in) :: max_bonds  ! Change this later
 ! Local variables
 integer :: counter, k, max_bonds, id_cnt, id_ij
-
+integer :: kspace_int
 
   max_bonds=0
 
   if (.not.associated(buff)) call increase_ibuffer(buff,n,buffer_width)
   if (n>buff%size) call increase_ibuffer(buff,n,buffer_width)
+
+
+ if (part%k_space) then
+   kspace_int=1
+ else
+   kspace_int=0
+ endif
+
 
   counter = 0
   call push_buffer_value(buff%data(:,n), counter, part%lon)
@@ -1322,7 +1339,9 @@ integer :: counter, k, max_bonds, id_cnt, id_ij
   call push_buffer_value(buff%data(:,n), counter, part%ine)
   call push_buffer_value(buff%data(:,n), counter, part%jne)
   call push_buffer_value(buff%data(:,n), counter, part%k)
+  call push_buffer_value(buff%data(:,n), counter, kspace_int)
   call push_buffer_value(buff%data(:,n), counter, part%halo_part)
+
 
 
 end subroutine pack_part_into_buffer2
@@ -1420,6 +1439,7 @@ type(particle), pointer :: this
 integer :: other_part_ine, other_part_jne
 integer :: counter, k, max_bonds, id_cnt, id_ij,tmp
 integer(kind=8) :: id
+integer :: kspace_int
 integer :: stderrunit
 logical :: force_app
 logical :: quick
@@ -1432,6 +1452,8 @@ logical :: quick
 
   force_app = .false.
   if(present(force_append)) force_app = force_append
+
+
 
   counter = 0
   call pull_buffer_value(buff%data(:,n), counter, localpart%lon)
@@ -1454,7 +1476,14 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%ine)
   call pull_buffer_value(buff%data(:,n), counter, localpart%jne)
   call pull_buffer_value(buff%data(:,n), counter, localpart%k)
+  call pull_buffer_value(buff%data(:,n), counter, kspace_int)
   call pull_buffer_value(buff%data(:,n), counter, localpart%halo_part)
+
+ if (kspace_int>0.5) then
+   localpart%k_space=.true.
+ else
+   localpart%k_space=.false.
+ endif
 
 
   !These quantities no longer need to be passed between processors
@@ -1636,7 +1665,8 @@ end subroutine increase_ibuffer
     buff%data(13,n)=traj%lat_old !Alon
     buff%data(14,n)=traj%particle_num !Alon
     buff%data(15,n)=traj%k
-    buff%data(16,n)=traj%depth
+    buff%data(16,n)=traj%k_space
+    buff%data(17,n)=traj%depth
 
   end subroutine pack_traj_into_buffer2
 
@@ -1668,7 +1698,8 @@ end subroutine increase_ibuffer
     traj%lat_old=buff%data(13,n) !Alon
     traj%particle_num=buff%data(14,n)
     traj%k=buff%data(15,n) 
-    traj%depth=buff%data(16,n)
+    traj%k_space=buff%data(16,n)
+    traj%depth=buff%data(17,n)
 
     call append_posn(first, traj)
 
@@ -2225,6 +2256,7 @@ real,dimension(:,:,:), intent(in) :: h
 real,dimension(:,:,:), optional, intent(in) :: thetao
 ! Local variables
 type(xyt) :: posn
+logical :: kspace_copy
 type(particle), pointer :: this
 integer :: grdi, grdj
 type(particles_gridded), pointer :: grd
@@ -2239,8 +2271,13 @@ integer :: stderrunit
       posn%lon=this%lon
       posn%lat=this%lat
       posn%k=this%k
-      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,this%k_space)
-      posn%theta = bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
+      kspace_copy = this%k_space
+      call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,kspace_copy)
+      if (grd%no_TS) then
+         posn%theta = -999.0 
+      else 
+          posn%theta = bilin(grd,thetao(:,:,floor(this%k)), this%ine, this%jne, this%xi, this%yj) 
+      endif
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
 !                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
 !                     floor(this%k), this%lon, this%lat, posn%theta  
@@ -3158,8 +3195,10 @@ integer :: klev
 real :: rdepth
 integer :: stderrunit
 real, dimension(grd%ke) :: hdepth1D
-real, dimension(grd%ke) :: hdepth1Dcum
-  ! Get the stderr unit number                                                 
+real, dimension(grd%ke) :: hdepth1Dcum                                                
+
+  ! Get the stderr unit number
+  stderrunit=stderr()
 
 if (k_space)then
    return
@@ -3179,6 +3218,7 @@ enddo
    k = find_layer1D(grd, depth,hdepth1Dcum)
 
 k_space=.true.
+
 
 end subroutine find_layer
 
@@ -3612,29 +3652,80 @@ end function bilin
 
 ! #############################################################################
 
-real function linlinx(grd,fld,i,j,xi,yj)
+real function linlinx(grd,fld,x,y,i,j,xi,yj)
 ! Arguments
 type(particles_gridded), pointer :: grd
-real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+real, intent(in) :: x, y
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
 integer, intent(in) :: i, j
+real :: linlinxnum, linlinxden
 ! Local variables
+logical :: explain=.false.
 
-    linlinx = fld(i,j  )*xi + fld(i-1,j)*(1-xi)
-
+    linlinxnum = fld(i,j  )*xi + fld(i-1,j)*(1-xi)
+    linlinxden = jacob2D(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
+                                      grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
+                                      grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
+                                      grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
+                                      x, y,grd%Lx, explain=.False.)
+    linlinx = linlinxnum/linlinxden
 end function linlinx
 
 
-real function linliny(grd,fld,i,j,xi,yj)
+real function linliny(grd,fld,x, y, i, j, xi, yj)
 ! Arguments
 type(particles_gridded), pointer :: grd
-real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+real, intent(in) :: x, y
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
+!real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
 integer, intent(in) :: i, j
+real :: linlinynum, linlinyden
 ! Local variables
 
-    linliny = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
-
+    linlinynum = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
+    linlinyden = jacob2D(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
+                                      grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
+                                      grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
+                                      grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
+                                      x, y,grd%Lx, explain=.False.)
+   linliny = linlinynum/linlinyden
 end function linliny
 
+
+real function jacob2D(x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, explain)
+! Get the stderr unit numberrguments
+real, intent(in) :: x0 !< Longitude of first corner
+real, intent(in) :: y0 !< Latitude of first corner
+real, intent(in) :: x1 !< Longitude of second corner
+real, intent(in) :: y1 !< Latitude of second corner
+real, intent(in) :: x2 !< Longitude of third corner
+real, intent(in) :: y2 !< Latitude of third corner
+real, intent(in) :: x3 !< Longitude of fourth corner
+real, intent(in) :: y3 !< Latitude of fourth corner
+real, intent(in) :: x !< Longitude of point
+real, intent(in) :: y !< Latitude of point
+real, intent(in) :: Lx !< Length of domain in zonal direction
+logical, intent(in) :: explain
+! Local variables
+real :: xx
+real :: l0,l1,l2,l3
+real :: xx0,xx1,xx2,xx3
+integer :: stderrunit
+  stderrunit=stderr()
+
+  xx= apply_modulo_around_point(x,x0,Lx)
+  xx0= apply_modulo_around_point(x0,x0,Lx)
+  xx1= apply_modulo_around_point(x1,x0,Lx)
+  xx2= apply_modulo_around_point(x2,x0,Lx)
+  xx3= apply_modulo_around_point(x3,x0,Lx)
+
+  l0=(xx-xx0)*(y1-y0)-(y-y0)*(xx1-xx0)
+  l1=(xx-xx1)*(y2-y1)-(y-y1)*(xx2-xx1)
+  l2=(xx-xx2)*(y3-y2)-(y-y2)*(xx3-xx2)
+  l3=(xx-xx3)*(y0-y3)-(y-y3)*(xx0-xx3)
+   
+  jacob2D = l0*l3-l1*l2
+end function jacob2D
 
 ! ##############################################################################
 
