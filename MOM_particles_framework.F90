@@ -24,7 +24,7 @@ use mpp_domains_mod, only: CYCLIC_GLOBAL_DOMAIN, FOLD_NORTH_EDGE
 use mpp_domains_mod, only: mpp_get_neighbor_pe, NORTH, SOUTH, EAST, WEST
 use mpp_domains_mod, only: mpp_define_io_domain
 use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING
-use fms_mod, only: open_namelist_file, check_nml_error, close_file
+use fms_mod, only: check_nml_error
 use fms_mod, only: clock_flag_default
 use time_manager_mod, only: time_type, get_date, get_time, set_date, operator(-)
 use diag_manager_mod, only: register_diag_field, register_static_field, send_data
@@ -205,6 +205,7 @@ type :: particles !; private
   integer :: clock_trw, clock_trp
   !>@}
   logical :: restarted=.false. !< Indicate whether we read state from a restart or not
+  logical :: require_restart=.false. !< If true, requires a restart file to be present when starting the model.
   logical :: Runge_not_Verlet=.True. !< True=Runge-Kutta, False=Verlet.
   logical :: xystagger=.False.
   logical :: ignore_missing_restart_parts=.False. !< True allows the model to ignore particles missing in the restart.
@@ -305,13 +306,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   stdlogunit=stdlog()
   write(stdlogunit,*) "particles_framework: "//trim(version)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=particles_nml, iostat=ierr)
-#else
-  iunit = open_namelist_file()
-  read  (iunit, particles_nml,iostat=ierr)
-  call close_file (iunit)
-#endif
   ierr = check_nml_error(ierr,'particles_nml')
 
   if (really_debug) debug=.true. ! One implies the other...
@@ -384,11 +379,10 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%lat(is:ie,js:je)=Grid%geolatBu(is:ie,js:je)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
   grd%ocean_depth(is:ie,js:je) = Grid%bathyT(is:ie,js:je)
-  is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-!  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:)!je
-  grd%dx(:,:)=Grid%dxCu(:,:)
-!  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:)!je
-  grd%dy(:,:)=Grid%dyCv(:,:)!je
+  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:je)
+  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:je)
+!  grd%dx(:,:)=Grid%dxCu(:,:) !This cause crash in debug mode
+!  grd%dy(:,:)=Grid%dyCv(:,:) !This cause crash in debug mode
   grd%msk(is:ie,js:je)=Grid%mask2dBu(is:ie,js:je)
   grd%cos(is:ie,js:je)=Grid%cos_rot(is:ie,js:je)
   grd%sin(is:ie,js:je)=Grid%sin_rot(is:ie,js:je)

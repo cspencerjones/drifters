@@ -1,44 +1,38 @@
+!> Handles reading/writing of restart files and trajectory-based diagnostic files
 module MOM_particles_io
 
-use constants_mod, only: pi, omega, HLF
-
 use mpp_domains_mod, only: domain2D
-use mpp_domains_mod, only: mpp_domain_is_tile_root_pe,mpp_get_domain_tile_root_pe, mpp_define_io_domain
+use mpp_domains_mod, only: mpp_domain_is_tile_root_pe,mpp_get_domain_tile_root_pe
 use mpp_domains_mod, only: mpp_get_tile_pelist,mpp_get_tile_npes,mpp_get_io_domain,mpp_get_tile_id
 
 use mpp_mod, only: mpp_npes, mpp_pe, mpp_root_pe, mpp_sum, mpp_min, mpp_max, NULL_PE
-use mpp_mod, only: mpp_send, mpp_recv, mpp_gather, mpp_chksum
+use mpp_mod, only: mpp_send, mpp_recv, mpp_gather, mpp_chksum, mpp_sync_self
 use mpp_mod, only: COMM_TAG_11, COMM_TAG_12, COMM_TAG_13, COMM_TAG_14
+use mpp_mod, only: mpp_get_current_pelist
 
-use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING, NOTE
-use fms_mod, only: field_exist, file_exist, read_data, write_data
+use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING, NOTE, lowercase
 
-use fms_io_mod, only: get_instance_filename
-use fms_io_mod, only : save_restart, restart_file_type, free_restart_type, set_meta_global
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
-use fms_io_mod, only : read_unlimited_axis =>read_compressed, field_exist, get_field_size
+use fms2_io_mod, only: get_instance_filename
+use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, close_file, read_restart, write_restart
+use fms2_io_mod, only: variable_exists, get_dimension_size, get_num_dimensions, get_dimension_names
+use fms2_io_mod, only: get_variable_attribute, variable_att_exists, write_data, read_data
+use fms2_io_mod, only: register_unlimited_compressed_axis, register_axis, register_restart_field, register_variable_attribute
+use fms2_io_mod, only: register_global_attribute, register_field
+use fms2_io_mod, only: get_global_io_domain_indices, unlimited
 
 use mpp_mod,    only : mpp_clock_begin, mpp_clock_end, mpp_clock_id
 use mpp_mod,    only : CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_LOOP
 use fms_mod,    only : clock_flag_default
 
-use time_manager_mod, only: time_type, get_time, set_date, operator(-)
-use MOM_time_manager,  only : time_type_to_real, real_to_time, get_ticks_per_second
-use MOM_time_manager,  only : get_date
-
-use MOM_grid, only : ocean_grid_type
+use time_manager_mod, only: time_type, get_date, get_time, set_date, operator(-)
+use time_manager_mod, only: get_ticks_per_second
 
 use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, buffer
 use MOM_particles_framework, only: pack_traj_into_buffer2,unpack_traj_from_buffer2
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell,append_posn
 use MOM_particles_framework, only: find_layer, find_depth
-!use particles_framework, only: count_bonds, form_a_bond
-use MOM_particles_framework, only: find_individual_particle
-use MOM_particles_framework, only: push_posn
-use MOM_particles_framework, only: add_new_part_to_list,destroy_particle
-use MOM_particles_framework, only: increase_ibuffer,grd_chksum2,grd_chksum3
-use MOM_particles_framework, only: bilin
-!params !Niki: write a subroutine to get these
+use MOM_particles_framework, only: add_new_part_to_list
+use MOM_particles_framework, only: increase_ibuffer
 use MOM_particles_framework, only: buffer_width, buffer_width_traj
 use MOM_particles_framework, only: verbose, really_debug, debug, restart_input_dir
 use MOM_particles_framework, only: ignore_ij_restart, use_slow_find
@@ -46,12 +40,13 @@ use MOM_particles_framework, only: force_all_pes_traj
 use MOM_particles_framework, only: check_for_duplicates_in_parallel
 use MOM_particles_framework, only: split_id, id_from_2_ints, generate_id
 
+
 implicit none ; private
 
 include 'netcdf.inc'
 
 public particles_io_init
-public read_restart_parts, write_restart,write_trajectory
+public read_restart_parts, write_restart_parts, write_trajectory
 
 !Local Vars
 integer, parameter :: file_format_major_version=0
@@ -64,11 +59,18 @@ logical :: is_io_tile_root_pe = .true.
 
 integer :: clock_trw,clock_trp
 
-#ifdef _FILE_VERSION
-  character(len=128) :: version = _FILE_VERSION
-#else
-  character(len=128) :: version = 'unknown'
+#ifndef _FILE_VERSION
+! Version of file provided can be set to git hash via a CPP macro but if not set we use 'unknown'
+#define _FILE_VERSION 'unknown'
 #endif
+character(len=128) :: version = _FILE_VERSION !< Version of file
+
+!FMS2io interface
+interface register_restart_field_wrap
+  module procedure :: register_restart_field_wrap_1d
+  module procedure :: register_restart_field_wrap_2d
+  module procedure :: register_restart_field_wrap_3d
+end interface
 
 contains
 
@@ -83,53 +85,38 @@ integer :: stdlogunit, stderrunit
   ! Get the stderr and stdlog unit numbers
   stderrunit=stderr()
   stdlogunit=stdlog()
-  write(stdlogunit,*) "particles_framework: "//trim(version)
+  write(stdlogunit,*) "MOM_particles_io: "//trim(version)
 
   !I/O layout init
   io_tile_id=-1
-
   io_domain => mpp_get_io_domain(parts%grd%domain)
-
-  if (.not. associated(io_domain)) then
-    call mpp_define_IO_domain(parts%grd%domain, io_layout)
-    io_domain => mpp_get_io_domain(parts%grd%domain)
+  if(associated(io_domain)) then
+     io_tile_id = mpp_get_tile_id(io_domain)
+     is_io_tile_root_pe = mpp_domain_is_tile_root_pe(io_domain)
+     io_tile_root_pe = mpp_get_domain_tile_root_pe(io_domain)
+     np=mpp_get_tile_npes(io_domain)
+     allocate(io_tile_pelist(np))
+     call mpp_get_tile_pelist(io_domain,io_tile_pelist)
+     io_npes = io_layout(1)*io_layout(2)
   endif
 
-
-  io_tile_id = mpp_get_tile_id(io_domain)
-  is_io_tile_root_pe = mpp_domain_is_tile_root_pe(io_domain)
-  io_tile_root_pe = mpp_get_domain_tile_root_pe(io_domain)
-  np=mpp_get_tile_npes(io_domain)
-  allocate(io_tile_pelist(np))
-  call mpp_get_tile_pelist(io_domain,io_tile_pelist)
-  io_npes = io_layout(1)*io_layout(2)
-
-  clock_trw=mpp_clock_id( 'particles-traj write', flags=clock_flag_default, grain=CLOCK_SUBCOMPONENT )
-  clock_trp=mpp_clock_id( 'particles-traj prepare', flags=clock_flag_default, grain=CLOCK_SUBCOMPONENT )
+  clock_trw=mpp_clock_id( 'MOM_particles-traj write', flags=clock_flag_default, grain=CLOCK_SUBCOMPONENT )
+  clock_trp=mpp_clock_id( 'MOM_particles-traj prepare', flags=clock_flag_default, grain=CLOCK_SUBCOMPONENT )
 
 end subroutine particles_io_init
 
-! ##############################################################################
-
 !> Write an particle restart file
-subroutine write_restart(parts, h, directory, time, stamp)
+subroutine write_restart_parts(parts, h)
 ! Arguments
-type(particles), pointer :: parts !< particles container
-real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
-character(len=*), intent(in) :: directory
-    !< The directory where the restart files are to be written 
-type(time_type),          intent(in)    :: time       !< The current model time
-logical,  intent(in) , optional   :: stamp !< If present and true, add time-stamp
+type(particles), pointer :: parts !< MOM_particles container
+real, dimension(:,:,:),intent(in) :: h !< Thickness of layers
 ! Local variables
-!type(bond), pointer :: current_bond
 integer :: i,j,id
 character(len=35) :: filename
 character(len=35) :: filename_bonds
 type(particle), pointer :: this=>NULL()
 integer :: stderrunit
 !I/O vars
-type(restart_file_type) :: parts_restart
-type(restart_file_type) :: parts_bond_restart
 integer :: nparts, nbonds
 integer :: n_static_parts
 logical :: check_bond_quality, kspace_copy
@@ -161,6 +148,11 @@ integer, allocatable, dimension(:) :: ine,              &
 
 
 integer :: grdi, grdj
+type(FmsNetcdfDomainFile_t) :: fileobj         !< Fms2_io fileobj
+integer :: global_nparts
+character(len=8), dimension(4) :: dim_names_4d
+character(len=8), dimension(3) :: dim_names_3d
+character(len=1), dimension(1) :: dim_names_1d
 
 ! Get the stderr unit number
  stderrunit=stderr()
@@ -195,43 +187,6 @@ integer :: grdi, grdj
    allocate(id_cnt(nparts))
    allocate(id_ij(nparts))
 
- 
-  call get_instance_filename("drifters.res.nc", filename)
-
- 
-  call set_domain(parts%grd%domain)
-
-  call register_restart_axis(parts_restart,filename,'i',nparts)
-
-  call set_meta_global(parts_restart,'file_format_major_version',ival=(/file_format_major_version/))
-  call set_meta_global(parts_restart,'file_format_minor_version',ival=(/file_format_minor_version/))
-  call set_meta_global(parts_restart,'time_axis',ival=(/0/))
-
-  !Now start writing in the io_tile_root_pe if there are any parts in the I/O list
-
-  ! Define Variables
-  id = register_restart_field(parts_restart,filename,'lon',lon,longname='longitude',units='degrees_E')
-  id = register_restart_field(parts_restart,filename,'lat',lat,longname='latitude',units='degrees_N')
-  id = register_restart_field(parts_restart,filename,'depth',depth,longname='depth below surface',units='m')
-  id = register_restart_field(parts_restart,filename,'uvel',uvel,longname='zonal velocity',units='m/s')
-  id = register_restart_field(parts_restart,filename,'vvel',vvel,longname='meridional velocity',units='m/s')
-  id = register_restart_field(parts_restart,filename,'ine',ine,longname='i index',units='none')
-  id = register_restart_field(parts_restart,filename,'jne',jne,longname='j index',units='none')
-  id = register_restart_field(parts_restart,filename,'start_lon',start_lon, &
-                                            longname='longitude of starting location',units='degrees_E')
-  id = register_restart_field(parts_restart,filename,'start_lat',start_lat, &
-                                            longname='latitude of starting location',units='degrees_N')
-  id = register_restart_field(parts_restart,filename,'start_d',start_d, &
-                                            longname='depth of starting location',units='m')
-  id = register_restart_field(parts_restart,filename,'drifter_num',drifter_num, &
-                                            longname='identification of the drifter', units='dimensionless')
-  id = register_restart_field(parts_restart,filename,'id_cnt',id_cnt, &
-                                            longname='counter component of particle id', units='dimensionless')
-  id = register_restart_field(parts_restart,filename,'id_ij',id_ij, &
-                                            longname='position component of particle id', units='dimensionless')
-
-  ! Write variables
-
   i = 0
   do grdj = parts%grd%jsc,parts%grd%jec ; do grdi = parts%grd%isc,parts%grd%iec
     this=>parts%list(grdi,grdj)%first
@@ -249,14 +204,54 @@ integer :: grdi, grdj
       this=>this%next
     enddo
   enddo ; enddo
-  if (present(stamp)) then
-    restart_time = convert_date_to_string(time)
-    call save_restart(parts_restart, restart_time)
-  else
-    call save_restart(parts_restart)
-  endif
-  if (really_debug) print *, 'Finish save_restart.' !for debugging
-  call free_restart_type(parts_restart)
+
+  filename = "RESTART/"//trim("drifters.res.nc")
+  dim_names_1d(1) = "i"
+  if (.not. open_file(fileobj, filename, "overwrite", parts%grd%domain, is_restart=.true.)) &
+    call error_mesg('write_restart_parts', "Error opening the particles restart file to write", FATAL)
+
+  call register_unlimited_compressed_axis(fileobj, dim_names_1d(1), nparts)
+  call register_global_attribute(fileobj,"file_format_major_version", file_format_major_version)
+  call register_global_attribute(fileobj,"file_format_minor_version", file_format_minor_version)
+  call register_global_attribute(fileobj,"time_axis", 0)
+
+  !Now start writing in the io_tile_root_pe if there are any parts in the I/O list
+
+  ! Define Variables
+  call register_restart_field_wrap(fileobj,'lon',lon, &
+                                   dim_names_1d,longname='longitude',units='degrees_E')
+  call register_restart_field_wrap(fileobj,'lat',lat, &
+                                   dim_names_1d,longname='latitude',units='degrees_N')
+  call register_restart_field_wrap(fileobj,'depth',depth, &
+                                   dim_names_1d,longname='depth below surface',units='m')
+  call register_restart_field_wrap(fileobj,'uvel',uvel, &
+                                   dim_names_1d,longname='zonal velocity',units='m/s')
+  call register_restart_field_wrap(fileobj,'vvel',vvel, &
+                                   dim_names_1d,longname='meridional velocity',units='m/s')
+  call register_restart_field_wrap(fileobj,'ine',ine, &
+                                   dim_names_1d,longname='i index',units='none')
+  call register_restart_field_wrap(fileobj,'jne',jne, &
+                                   dim_names_1d,longname='j index',units='none')
+  call register_restart_field_wrap(fileobj,'start_lon',start_lon, &
+                                   dim_names_1d,longname='longitude of starting location',units='degrees_E')
+  call register_restart_field_wrap(fileobj,'start_lat',start_lat, &
+                                   dim_names_1d,longname='latitude of starting location',units='degrees_N')
+  call register_restart_field_wrap(fileobj,'start_d',start_d, &
+                                   dim_names_1d,longname='depth of starting location', units='m')
+  call register_restart_field_wrap(fileobj,'id_cnt',id_cnt, &
+                                   dim_names_1d,longname='counter component of particle id', units='dimensionless')
+  call register_restart_field_wrap(fileobj,'id_ij',id_ij, &
+                                   dim_names_1d,longname='position component of particle id', units='dimensionless')
+  call register_restart_field_wrap(fileobj,'drifter_num',drifter_num, &
+                                   dim_names_1d,longname='identification of the drifter',units='dimensionless')
+
+  call register_field(fileobj, "i", "int")
+  call write_restart(fileobj)
+
+  call get_dimension_size(fileobj, "i", global_nparts)
+  call write_data(fileobj, "i", global_nparts)
+
+  call close_file(fileobj)
 
   deallocate(              &
              lon,          &
@@ -276,9 +271,7 @@ integer :: grdi, grdj
              id_cnt,    &
              id_ij) 
 
-  call nullify_domain()
-
-end subroutine write_restart
+end subroutine write_restart_parts
 
 
 
@@ -326,10 +319,9 @@ real, dimension(:,:,:),intent(in) :: h
 integer :: n, siz(4), nparts_in_file, nparts_read
 logical :: lres, found_restart, found, replace_drifter_num
 logical :: explain
-logical :: multiPErestart  ! Not needed with new restart read; currently kept for compatibility
 real :: lon0, lon1, lat0, lat1
 real :: pos_is_good, pos_is_good_all_pe
-character(len=33) :: filename, filename_base
+character(len=53) :: filename
 type(particles_gridded), pointer :: grd=>NULL()
 
 type(particle) :: localpart
@@ -345,6 +337,10 @@ real, allocatable,dimension(:) :: lon, &
                                   start_d
 integer, allocatable, dimension(:) :: id_cnt, &
                                       id_ij
+
+type(FmsNetcdfDomainFile_t) :: fileobj !< Fms2_io fileobj
+character(len=1), dimension(1) :: dim_names_1d
+
   ! Get the stderr unit number
   stderrunit=stderr()
 
@@ -365,13 +361,6 @@ integer, allocatable, dimension(:) :: id_cnt, &
     do j=grd%jsd,grd%jed
       do i=grd%isd,grd%ied
          grd%uo(i,j,k) = u(i,j,k)
-       enddo
-    enddo
-  enddo
-
-  do k=1,grd%ke
-    do j=grd%jsd,grd%jed
-      do i=grd%isd,grd%ied
          grd%vo(i,j,k) = v(i,j,k)
        enddo
     enddo
@@ -392,22 +381,21 @@ integer, allocatable, dimension(:) :: id_cnt, &
   ! Zero out nparts_in_file
   nparts_in_file = 0
 
-  filename_base=trim(restart_input_dir)//'drifters.res.nc'
+  filename=trim(restart_input_dir)//'drifters.res.nc'
 
-  found_restart = find_restart_file(filename_base, filename, multiPErestart, io_tile_id(1))
+  found_restart = open_file(fileobj, filename, "read", parts%grd%domain, is_restart=.true.)
 
   if (found_restart) then
-    filename = filename_base
-    call get_field_size(filename,'i',siz, field_found=found, domain=grd%domain)
+    call get_dimension_size(fileobj, 'i', siz(1))
 
     nparts_in_file = siz(1)
-    replace_drifter_num = field_exist(filename, 'drifter_num') ! True if using a 32-bit drifter_num in restart file
     allocate(lon(nparts_in_file))
     allocate(lat(nparts_in_file))
     allocate(start_lon(nparts_in_file))
     allocate(start_lat(nparts_in_file))
     allocate(start_d(nparts_in_file))
     allocate(depth(nparts_in_file))
+    replace_drifter_num = variable_exists(fileobj, 'drifter_num') ! True if using a 32-bit drifter_num in restart file
     if (replace_drifter_num) then
       allocate(id(nparts_in_file))
       allocate(drifter_num(nparts_in_file))
@@ -416,20 +404,11 @@ integer, allocatable, dimension(:) :: id_cnt, &
       allocate(id_ij(nparts_in_file))
     endif
 
-    call read_unlimited_axis(filename,'lon',lon,domain=grd%domain)
-    call read_unlimited_axis(filename,'lat',lat,domain=grd%domain)
-    call read_unlimited_axis(filename,'start_lon',start_lon,domain=grd%domain)
-    call read_unlimited_axis(filename,'start_lat',start_lat,domain=grd%domain)
-    call read_unlimited_axis(filename,'start_d',start_d,domain=grd%domain)
-    call read_unlimited_axis(filename,'depth',depth,domain=grd%domain)
-    if (replace_drifter_num) then
-      call read_unlimited_axis(filename,'drifter_num',id,domain=grd%domain)
-      call read_unlimited_axis(filename,'drifter_num',drifter_num,domain=grd%domain)
-    else
-      call read_int_vector(filename, 'id_cnt', id_cnt, grd%domain)
-      call read_int_vector(filename, 'id_ij', id_ij, grd%domain)
-    endif
-  end if ! found_restart ln 569
+      call read_restart(fileobj)
+      call close_file(fileobj)
+  elseif (parts%require_restart) then
+     stop 'read_restart_parts, RESTART NOT FOUND!'
+  endif
 
   ! Find approx outer bounds for tile
   lon0=minval( grd%lon(grd%isc-1:grd%iec,grd%jsc-1:grd%jec) )
@@ -447,11 +426,10 @@ integer, allocatable, dimension(:) :: id_cnt, &
     else
       lres=find_cell_by_search(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
     endif
-
     if (really_debug) then
-      write(stderrunit,'(a,i8,a,3f9.4,a,i8)') 'particles, read_restart_part: part ',n,' is at ',localpart%lon,localpart%lat,localpart%depth,&
+      write(stderrunit,'(a,i8,a,2f9.4,a,i8)') 'MOM_particles, read_restart_parts: part ',k,' is at ',localpart%lon,localpart%lat,&
            & ' on PE ',mpp_pe()
-      write(stderrunit,*) 'particles, read_restart_parts: lres = ',lres
+      write(stderrunit,*) 'MOM_particles, read_restart_parts: lres = ',lres
     endif
 
     if (lres) then ! True if the particle resides on the current processors computational grid
@@ -469,7 +447,7 @@ integer, allocatable, dimension(:) :: id_cnt, &
       localpart%k_space=.false.
       call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
     endif
-  end do ! ln 650
+  enddo
 
   if (found_restart) then
     deallocate(lon,          &
@@ -485,28 +463,15 @@ integer, allocatable, dimension(:) :: id_cnt, &
       deallocate(id_cnt)
       deallocate(id_ij)
     endif
+
   endif
 
   call check_for_duplicates_in_parallel(parts)
 
+  if (mpp_pe().eq.mpp_root_pe().and.verbose) write(*,'(a)') 'MOM_particles, read_restart_parts: completed'
+
 end subroutine read_restart_parts
 
-!> Read a vector of integers from file and use a default value if variable is missing
-subroutine read_int_vector(filename, varname, values, domain, value_if_not_in_file)
-  character(len=*),  intent(in)  :: filename !< Name of file to read from
-  character(len=*),  intent(in)  :: varname !< Name of variable to read
-  integer,           intent(out) :: values(:) !< Returned vector of integers
-  type(domain2D),    intent(in)  :: domain !< Parallel decomposition
-  integer, optional, intent(in)  :: value_if_not_in_file !< Value to use if variable is not in file
-
-  if (present(value_if_not_in_file).and..not.field_exist(filename, varname)) then
-    values(:)=value_if_not_in_file
-  else
-    call read_unlimited_axis(filename,varname,values,domain=domain)
-  endif
-end subroutine read_int_vector
-
-! ##############################################################################
 !> Write a trajectory-based diagnostics file
 subroutine write_trajectory(trajectory, save_short_traj)
 ! Arguments
@@ -525,10 +490,10 @@ type(xyt), pointer :: this, next
 integer :: stderrunit, cnt, ij
 !I/O vars
 type(xyt), pointer :: traj4io=>null()
-integer :: ntrajs_sent_io,ntrajs_rcvd_io
 integer :: from_pe,np
 type(buffer), pointer :: obuffer_io=>null(), ibuffer_io=>null()
 logical :: io_is_in_append_mode
+integer :: ntrajs_sent_io,ntrajs_rcvd_io
 
   ! Get the stderr unit number
   stderrunit=stderr()
@@ -556,6 +521,7 @@ logical :: io_is_in_append_mode
   !Now gather and append the parts from all pes in the io_tile to the list on corresponding io_tile_root_pe
   ntrajs_sent_io =0
   ntrajs_rcvd_io =0
+
   if(is_io_tile_root_pe) then
      !Receive trajs from all pes in this I/O tile !FRAGILE!SCARY!
      do np=2,size(io_tile_pelist) ! Note: np starts from 2 to exclude self
@@ -584,7 +550,7 @@ logical :: io_is_in_append_mode
         call mpp_send(obuffer_io%data, ntrajs_sent_io*buffer_width_traj, to_pe=io_tile_root_pe, tag=COMM_TAG_12)
      endif
   endif
-
+  call mpp_sync_self()
   endif !.NOT. force_all_pes_traj
 
   call mpp_clock_end(clock_trp)
@@ -610,24 +576,25 @@ logical :: io_is_in_append_mode
           write(filename,'(A,".",I6.6)') trim(filename), mpp_pe()
        endif
     endif
+
     io_is_in_append_mode = .false.
     iret = nf_create(filename, NF_NOCLOBBER, ncid)
     if (iret .ne. NF_NOERR) then
       iret = nf_open(filename, NF_WRITE, ncid)
       io_is_in_append_mode = .true.
-      if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_open failed'
+      if (iret .ne. NF_NOERR) write(stderrunit,*) 'MOM_particles, write_trajectory: nf_open failed'
     endif
     if (verbose) then
       if (io_is_in_append_mode) then
-        write(*,'(2a)') 'particles, write_trajectory: appending to ',filename
+        write(*,'(2a)') 'MOM_particles, write_trajectory: appending to ',filename
       else
-        write(*,'(2a)') 'particles, write_trajectory: creating ',filename
+        write(*,'(2a)') 'MOM_particles, write_trajectory: creating ',filename
       endif
     endif
 
     if (io_is_in_append_mode) then
       iret = nf_inq_dimid(ncid, 'i', i_dim)
-      if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_inq_dimid i failed'
+      if (iret .ne. NF_NOERR) write(stderrunit,*) 'MOM_particles, write_trajectory: nf_inq_dimid i failed'
       lonid = inq_varid(ncid, 'lon')
       latid = inq_varid(ncid, 'lat')
       kid = inq_varid(ncid, 'k')
@@ -645,7 +612,7 @@ logical :: io_is_in_append_mode
     else
       ! Dimensions
       iret = nf_def_dim(ncid, 'i', NF_UNLIMITED, i_dim)
-      if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_def_dim i failed'
+      if (iret .ne. NF_NOERR) write(stderrunit,*) 'MOM_particles, write_trajectory: nf_def_dim i failed'
 
       ! Variables
       lonid = def_var(ncid, 'lon', NF_DOUBLE, i_dim)
@@ -700,7 +667,7 @@ logical :: io_is_in_append_mode
     this=>traj4io
     if (io_is_in_append_mode) then
       iret = nf_inq_dimlen(ncid, i_dim, i)
-      if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_inq_dimlen i failed'
+      if (iret .ne. NF_NOERR) write(stderrunit,*) 'MOM_particles, write_trajectory: nf_inq_dimlen i failed'
     else
       i = 0
     endif
@@ -728,39 +695,34 @@ logical :: io_is_in_append_mode
 
     ! Finish up
     iret = nf_close(ncid)
-    if (iret .ne. NF_NOERR) write(stderrunit,*) 'particles, write_trajectory: nf_close failed',mpp_pe(),filename
+    if (iret .ne. NF_NOERR) write(stderrunit,*) 'MOM_particles, write_trajectory: nf_close failed',mpp_pe(),filename
 
   endif !(is_io_tile_root_pe .AND. associated(traj4io))
   call mpp_clock_end(clock_trw)
 
-
-this=>trajectory
-
-
 end subroutine write_trajectory
 
 
-! ##############################################################################
-
+!> Returns netcdf id of variable
 integer function inq_var(ncid, var, unsafe)
 ! Arguments
-integer, intent(in) :: ncid
-character(len=*), intent(in) :: var
-logical, optional, intent(in) :: unsafe
+integer, intent(in) :: ncid !< Handle to netcdf file
+character(len=*), intent(in) :: var !< Name of variable
+logical, optional, intent(in) :: unsafe !< If present and true, do not fail if variable is not in file
 ! Local variables
 integer :: iret
 integer :: stderrunit
 logical :: unsafely=.false.
 
-if(present(unsafe)) unsafely=unsafe
+  if(present(unsafe)) unsafely=unsafe
   ! Get the stderr unit number
   stderrunit=stderr()
 
   iret=nf_inq_varid(ncid, var, inq_var)
   if (iret .ne. NF_NOERR) then
     if (.not. unsafely) then
-      write(stderrunit,*) 'particles, inq_var: nf_inq_varid ',var,' failed'
-      call error_mesg('particles, inq_var', 'netcdf function returned a failure!', FATAL)
+      write(stderrunit,*) 'MOM_particles, inq_var: nf_inq_varid ',var,' failed'
+      call error_mesg('MOM_particles, inq_var', 'netcdf function returned a failure!', FATAL)
     else
       inq_var=-1
     endif
@@ -768,12 +730,13 @@ if(present(unsafe)) unsafely=unsafe
 
 end function inq_var
 
-! ##############################################################################
-
+!> Define a netcdf variable
 integer function def_var(ncid, var, ntype, idim)
 ! Arguments
-integer, intent(in) :: ncid, ntype, idim
-character(len=*), intent(in) :: var
+integer, intent(in) :: ncid !< Handle to netcdf file
+character(len=*), intent(in) :: var !< Name of variable
+integer, intent(in) :: ntype !< Netcdf type of variable
+integer, intent(in) :: idim !< Length of vector
 ! Local variables
 integer :: iret
 integer :: stderrunit
@@ -783,18 +746,16 @@ integer :: stderrunit
 
   iret = nf_def_var(ncid, var, ntype, 1, idim, def_var)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, def_var: nf_def_var failed for ',trim(var)
-    call error_mesg('particles, def_var', 'netcdf function returned a failure!', FATAL)
+    call error_mesg('MOM_particles, def_var', nf_strerror(iret), FATAL)
   endif
 
 end function def_var
 
-! ##############################################################################
-
+!> Returns id of variable
 integer function inq_varid(ncid, var)
 ! Arguments
-integer, intent(in) :: ncid
-character(len=*), intent(in) :: var
+integer, intent(in) :: ncid !< Handle to netcdf file
+character(len=*), intent(in) :: var !< Name of variable
 ! Local variables
 integer :: iret
 integer :: stderrunit
@@ -804,18 +765,19 @@ integer :: stderrunit
 
   iret = nf_inq_varid(ncid, var, inq_varid)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, inq_varid: nf_inq_varid failed for ',trim(var)
-    call error_mesg('particles, inq_varid', 'netcdf function returned a failure!', FATAL)
+    write(stderrunit,*) 'MOM_particles, inq_varid: nf_inq_varid failed for ',trim(var)
+    call error_mesg('MOM_particles, inq_varid', 'netcdf function returned a failure!', FATAL)
   endif
 
 end function inq_varid
 
-! ##############################################################################
-
+!> Add a string attribute to a netcdf variable
 subroutine put_att(ncid, id, att, attval)
 ! Arguments
-integer, intent(in) :: ncid, id
-character(len=*), intent(in) :: att, attval
+integer, intent(in) :: ncid !< Handle to netcdf file
+integer, intent(in) :: id !< Netcdf id of variable
+character(len=*), intent(in) :: att !< Name of attribute
+character(len=*), intent(in) :: attval !< Value of attribute
 ! Local variables
 integer :: vallen, iret
 integer :: stderrunit
@@ -826,18 +788,19 @@ integer :: stderrunit
   vallen=len_trim(attval)
   iret = nf_put_att_text(ncid, id, att, vallen, attval)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, put_att: nf_put_att_text failed adding', &
+    write(stderrunit,*) 'MOM_particles, put_att: nf_put_att_text failed adding', &
       trim(att),' = ',trim(attval)
-    call error_mesg('particles, put_att', 'netcdf function returned a failure!', FATAL)
+    call error_mesg('MOM_particles, put_att', 'netcdf function returned a failure!', FATAL)
   endif
 
 end subroutine put_att
 
-! ##############################################################################
-
+!> Read a real from a netcdf file
 real function get_double(ncid, id, i)
 ! Arguments
-integer, intent(in) :: ncid, id, i
+integer, intent(in) :: ncid !< Handle to netcdf file
+integer, intent(in) :: id !< Netcdf id of variable
+integer, intent(in) :: i !< Index to read
 ! Local variables
 integer :: iret
 integer :: stderrunit
@@ -847,17 +810,18 @@ integer :: stderrunit
 
   iret=nf_get_var1_double(ncid, id, i, get_double)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, get_double: nf_get_var1_double failed reading'
-    call error_mesg('particles, get_double', 'netcdf function returned a failure!', FATAL)
+    write(stderrunit,*) 'MOM_particles, get_double: nf_get_var1_double failed reading'
+    call error_mesg('MOM_particles, get_double', 'netcdf function returned a failure!', FATAL)
   endif
 
 end function get_double
 
-! ##############################################################################
-
+!> Read an integer from a netcdf file
 integer function get_int(ncid, id, i)
 ! Arguments
-integer, intent(in) :: ncid, id, i
+integer, intent(in) :: ncid !< Handle to netcdf file
+integer, intent(in) :: id !< Netcdf id of variable
+integer, intent(in) :: i !< Index to read
 ! Local variables
 integer :: iret
 integer :: stderrunit
@@ -867,13 +831,12 @@ integer :: stderrunit
 
   iret=nf_get_var1_int(ncid, id, i, get_int)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, get_int: nf_get_var1_int failed reading'
-    call error_mesg('particles, get_int', 'netcdf function returned a failure!', FATAL)
+    write(stderrunit,*) 'MOM_particles, get_int: nf_get_var1_int failed reading'
+    call error_mesg('MOM_particles, get_int', 'netcdf function returned a failure!', FATAL)
   endif
 
 end function get_int
 
-! ##############################################################################
 !> Write a real to a netcdf file
 subroutine put_double(ncid, id, i, val)
 ! Arguments
@@ -890,13 +853,11 @@ integer :: stderrunit
 
   iret = nf_put_vara_double(ncid, id, i, 1, val)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, put_double: nf_put_vara_double failed writing'
-    call error_mesg('particless, put_double', 'netcdf function returned a failure!', FATAL)
+    write(stderrunit,*) 'MOM_particles, put_double: nf_put_vara_double failed writing'
+    call error_mesg('MOM_particles, put_double', 'netcdf function returned a failure!', FATAL)
   endif
 
 end subroutine put_double
-
-! ##############################################################################
 
 !> Write an integer to a netcdf file
 subroutine put_int(ncid, id, i, val)
@@ -914,57 +875,268 @@ integer :: stderrunit
 
   iret = nf_put_vara_int(ncid, id, i, 1, val)
   if (iret .ne. NF_NOERR) then
-    write(stderrunit,*) 'particles, put_int: nf_put_vara_int failed writing'
-    call error_mesg('particles, put_int', 'netcdf function returned a failure!', FATAL)
+    write(stderrunit,*) 'MOM_particles, put_int: nf_put_vara_int failed writing'
+    call error_mesg('MOM_particles, put_int', 'netcdf function returned a failure!', FATAL)
   endif
 
 end subroutine put_int
 
+!> Wrapper for fms_io register_restart_field
+subroutine register_restart_field_wrap_1d(fileobj, varname, vdata, dimensions, &
+                                          longname, units, is_domain_decomposed)
+  type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj              !< Fms2_io fileobj
+  character(len=*),            intent(in)    :: varname              !< Name of the variable
+  class(*),                    intent(in)    :: vdata(:)             !< Variable data
+  character(len=*),            intent(in)    :: dimensions(:)        !< Names of variable dimensions
+  character(len=*),            intent(in)    :: longname             !< Longname of the variable
+  character(len=*),            intent(in)    :: units                !< Units of the variable
+  logical, optional,           intent(in)    :: is_domain_decomposed !< .True. if the variable is
+                                                                     !! domain decomposed
 
-! ##############################################################################
+  integer(8)           :: chksum_val !< Calculated checksum
+  integer, allocatable :: all_pe(:)  !< List of pes in the current pelist
+  character(len=32)    :: chksum     !< Checksum as a character
+  logical              :: do_chksum  !< .True. if it is needed to write checksums
 
-logical function find_restart_file(filename, actual_file, multiPErestart, tile_id)
-  character(len=*), intent(in) :: filename
-  character(len=*), intent(out) :: actual_file
-  logical, intent(out) :: multiPErestart
-  integer, intent(in) :: tile_id
+  call register_restart_field(fileobj, varname, vdata, dimensions)
 
-  character(len=6) :: pe_name
+  do_chksum = .true.
+  if (present(is_domain_decomposed)) then
+    do_chksum = .not. is_domain_decomposed
+  endif
 
-  find_restart_file = .false.
+  !! The checksum for domain decomposed variables is calculated inside the `write_restart` call
+  if (do_chksum) then
+    allocate(all_pe(mpp_npes()))
+    call mpp_get_current_pelist(all_pe)
 
-  ! If running as ensemble, add the ensemble id string to the filename
-  call get_instance_filename(filename, actual_file)
+    select type (vdata)
+    type is (real)
+      chksum_val = mpp_chksum(vdata, all_pe)
+    type is (integer)
+      chksum_val = mpp_chksum(vdata, all_pe)
+      call register_variable_attribute(fileobj, varname, "packing", int(0))
+    end select
 
-  ! Prefer combined restart files.
-  inquire(file=actual_file,exist=find_restart_file)
-  if (find_restart_file) return
+    chksum = ""
+    write(chksum, "(Z16)") chksum_val
 
-  ! Uncombined restart
-  if(tile_id .ge. 0) then
-    write(actual_file,'(A,".",I4.4)') trim(actual_file), tile_id
+    call add_variable_metadata(fileobj, varname, longname, units, chksum=chksum)
   else
-  if (mpp_npes()>10000) then
-     write(pe_name,'(a,i6.6)' )'.', mpp_pe()
+    call add_variable_metadata(fileobj, varname, longname, units)
+  endif
+
+end subroutine register_restart_field_wrap_1d
+
+!> Wrapper for fms_io register_restart_field
+subroutine register_restart_field_wrap_2d(fileobj, varname, vdata, dimensions, &
+                                          longname, units, is_domain_decomposed)
+  type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj              !< Fms2_io fileobj
+  character(len=*),            intent(in)    :: varname              !< Name of the variable
+  class(*),                    intent(in)    :: vdata(:,:)           !< Variable data
+  character(len=*),            intent(in)    :: dimensions(:)        !< Names of variable dimensions
+  character(len=*),            intent(in)    :: longname             !< Longname of the variable
+  character(len=*),            intent(in)    :: units                !< Units of the variable
+  logical, optional,           intent(in)    :: is_domain_decomposed !< .True. if the variable is
+                                                                     !! domain decomposed
+
+  integer(8)           :: chksum_val !< Calculated checksum
+  integer, allocatable :: all_pe(:)  !< List of pes in the current pelist
+  character(len=32)    :: chksum     !< Checksum as a character
+  logical              :: do_chksum  !< .True. if it is needed to write checksums
+
+  call register_restart_field(fileobj, varname, vdata, dimensions)
+
+  do_chksum = .true.
+  if (present(is_domain_decomposed)) then
+    do_chksum = .not. is_domain_decomposed
+  endif
+
+  !! The checksum for domain decomposed variables is calculated inside the `write_restart` call
+  if (do_chksum) then
+    allocate(all_pe(mpp_npes()))
+    call mpp_get_current_pelist(all_pe)
+
+    select type (vdata)
+    type is (real)
+      chksum_val = mpp_chksum(vdata, all_pe)
+    type is (integer)
+      chksum_val = mpp_chksum(vdata, all_pe)
+      call register_variable_attribute(fileobj, varname, "packing", int(0))
+    end select
+
+    chksum = ""
+    write(chksum, "(Z16)") chksum_val
+
+    call add_variable_metadata(fileobj, varname, longname, units, chksum=chksum)
   else
-     write(pe_name,'(a,i4.4)' )'.', mpp_pe()
-  endif
-  actual_file=trim(actual_file)//trim(pe_name)
-  endif
-  inquire(file=actual_file,exist=find_restart_file)
-  if (find_restart_file) then
-     multiPErestart=.true.
-     return
+    call add_variable_metadata(fileobj, varname, longname, units)
   endif
 
-  ! No file found, Reset all return parameters
-  find_restart_file=.false.
-  actual_file = ''
-  multiPErestart=.false.
+end subroutine register_restart_field_wrap_2d
 
-end function find_restart_file
+!> Wrapper for fms_io register_restart_field
+subroutine register_restart_field_wrap_3d(fileobj, varname, vdata, dimensions, &
+                                          longname, units, is_domain_decomposed)
+  type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj              !< Fms2_io fileobj
+  character(len=*),            intent(in)    :: varname              !< Name of the variable
+  class(*),                    intent(in)    :: vdata(:,:,:)         !< Variable data
+  character(len=*),            intent(in)    :: dimensions(:)        !< Names of variable dimensions
+  character(len=*),            intent(in)    :: longname             !< Longname of the variable
+  character(len=*),            intent(in)    :: units                !< Units of the variable
+  logical, optional,           intent(in)    :: is_domain_decomposed !< .True. if the variable is
+                                                                     !! domain decomposed
 
+  integer(8)           :: chksum_val !< Calculated checksum
+  integer, allocatable :: all_pe(:)  !< List of pes in the current pelist
+  character(len=32)    :: chksum     !< Checksum as a character
+  logical              :: do_chksum  !< .True. if it is needed to write checksums
 
-!######################################################################################
+  call register_restart_field(fileobj, varname, vdata, dimensions)
 
-end module MOM_particles_io
+  do_chksum = .true.
+  if (present(is_domain_decomposed)) then
+    do_chksum = .not. is_domain_decomposed
+  endif
+
+  !! The checksum for domain decomposed variables is calculated inside the `write_restart` call
+  if (do_chksum) then
+    allocate(all_pe(mpp_npes()))
+    call mpp_get_current_pelist(all_pe)
+
+    select type (vdata)
+    type is (real)
+      chksum_val = mpp_chksum(vdata, all_pe)
+    type is (integer)
+      chksum_val = mpp_chksum(vdata, all_pe)
+      call register_variable_attribute(fileobj, varname, "packing", int(0))
+    end select
+
+    chksum = ""
+    write(chksum, "(Z16)") chksum_val
+
+    call add_variable_metadata(fileobj, varname, longname, units, chksum=chksum)
+  else
+    call add_variable_metadata(fileobj, varname, longname, units)
+  endif
+end subroutine register_restart_field_wrap_3d
+
+!> Writes out some variable meta_data
+subroutine add_variable_metadata(fileobj, varname, longname, units, chksum)
+  type(FmsNetcdfDomainFile_t), intent(inout)          :: fileobj   !< Fms2_io fileobj
+  character(len=*),            intent(in)             :: varname   !< Name of the variable
+  character(len=*),            intent(in)             :: longname  !< Longname of the variable
+  character(len=*),            intent(in)             :: units     !< Units of the variable
+  character(len=*),            intent(in),  optional  :: chksum    !< Checksum as a character
+
+  call register_variable_attribute(fileobj, varname, "long_name", trim(longname), &
+                                   str_len=len_trim(longname))
+  call register_variable_attribute(fileobj, varname, "units", trim(units), &
+                                   str_len=len_trim(units))
+  if (present(chksum)) then
+    call register_variable_attribute(fileobj, varname, "checksum", chksum, str_len=32)
+  endif
+end subroutine add_variable_metadata
+
+!> Writes out the dummy axis_data
+subroutine write_axis_data(fileobj, z_size)
+  type(FmsNetcdfDomainFile_t), intent(inout)          :: fileobj   !< Fms2_io fileobj
+  integer,                     intent(in)             :: z_size    !< Size of the z dimension
+
+  integer, dimension(:), allocatable :: buffer !< Buffer with axis data
+  integer :: is, ie !< Starting and Ending indices for data
+  integer :: i !< For do loops
+
+  call get_global_io_domain_indices(fileobj, "xaxis_1", is, ie, indices=buffer)
+  call write_data(fileobj, "xaxis_1", buffer)
+  deallocate(buffer)
+
+  call get_global_io_domain_indices(fileobj, "yaxis_1", is, ie, indices=buffer)
+  call write_data(fileobj, "yaxis_1", buffer)
+  deallocate(buffer)
+
+  allocate(buffer(z_size))
+  buffer = (/ (i, i=1,z_size)/)
+  call write_data(fileobj, "zaxis_1", buffer)
+
+  call write_data(fileobj, "Time", 1)
+
+end subroutine write_axis_data
+
+!> Writes out the dummy axis_metadata
+subroutine write_axis_metadata(fileobj)
+  type(FmsNetcdfDomainFile_t), intent(inout)          :: fileobj   !< Fms2_io fileobj
+
+  ! Register the dimensions as variables too
+  call register_field(fileobj, "xaxis_1", "double", (/"xaxis_1"/))
+  call register_field(fileobj, "yaxis_1", "double", (/"yaxis_1"/))
+  call register_field(fileobj, "zaxis_1", "double", (/"zaxis_1"/))
+  call register_field(fileobj, "Time", "double", (/"Time"/))
+
+  call register_variable_attribute(fileobj, "xaxis_1", "long_name", "xaxis_1", str_len=7)
+  call register_variable_attribute(fileobj, "xaxis_1", "cartesian_axis", "X", str_len=1)
+  call register_variable_attribute(fileobj, "xaxis_1", "units", "none", str_len=4)
+
+  call register_variable_attribute(fileobj, "yaxis_1", "long_name", "yaxis_1", str_len=7)
+  call register_variable_attribute(fileobj, "yaxis_1", "cartesian_axis", "Y", str_len=1)
+  call register_variable_attribute(fileobj, "yaxis_1", "units", "none", str_len=4)
+
+  call register_variable_attribute(fileobj, "zaxis_1", "long_name", "zaxis_1", str_len=7)
+  call register_variable_attribute(fileobj, "zaxis_1", "cartesian_axis", "Z", str_len=1)
+  call register_variable_attribute(fileobj, "zaxis_1", "units", "none", str_len=4)
+
+  call register_variable_attribute(fileobj, "Time", "long_name", "Time", str_len=4)
+  call register_variable_attribute(fileobj, "Time", "cartesian_axis", "T", str_len=1)
+  call register_variable_attribute(fileobj, "Time", "units", "time level", str_len=10)
+
+end subroutine
+
+!> Wrapper for fms2_io register_axis calls when reading domain decomposed files
+subroutine register_axis_wrapper(fileobj)
+  type(FmsNetcdfDomainFile_t), intent(inout)          :: fileobj   !< Fms2_io fileobj
+
+    character(len=20), dimension(:), allocatable :: file_dim_names !< Array of dimension names
+    integer :: i                    !< For do loops
+    integer :: dim_size             !< Size of the dimension
+    integer :: ndims                !< Number of dimensions in the file
+    logical :: is_domain_decomposed !< Flag indication if domain decomposed
+    character(len=1) :: cbuffer      !< string buffer
+
+    ndims = get_num_dimensions(fileobj)
+    allocate(file_dim_names(ndims))
+
+    call get_dimension_names(fileobj, file_dim_names)
+
+    !< When reading fms2_io requires that the domain decomposed dimensions ("x" and "y") are
+    !! registered so that fms2_io knows that they are domain decomposed
+    do i = 1, ndims
+       is_domain_decomposed = .false.
+
+       !< Check if the dimension is also a variable
+       if (variable_exists(fileobj, file_dim_names(i))) then
+
+          !< If the variable exists look for the "cartesian_axis" or "axis" variable attribute
+          if (variable_att_exists(fileobj, file_dim_names(i), "axis")) then
+              call get_variable_attribute(fileobj, file_dim_names(i), "axis", cbuffer)
+
+              !< If the attribute exists and it is "x" or "y" register it as a domain decomposed dimension
+              if (lowercase(cbuffer) .eq. "x" .or. lowercase(cbuffer) .eq. "y" ) then
+                  is_domain_decomposed = .true.
+                  call register_axis(fileobj, file_dim_names(i), cbuffer)
+              endif
+
+          else if (variable_att_exists(fileobj, file_dim_names(i), "cartesian_axis")) then
+              call get_variable_attribute(fileobj, file_dim_names(i), "cartesian_axis", cbuffer)
+
+              !< If the attribute exists and it "x" or "y" register it as a domain decomposed dimension
+              if (lowercase(cbuffer) .eq. "x" .or. lowercase(cbuffer) .eq. "y" ) then
+                  is_domain_decomposed = .true.
+                  call register_axis(fileobj, file_dim_names(i), cbuffer)
+              endif
+
+          endif !< If variable attribute exists
+       endif !< If variable exists
+   enddo
+end subroutine register_axis_wrapper
+
+end module

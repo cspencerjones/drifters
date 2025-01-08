@@ -5,9 +5,8 @@ use MOM_grid,         only : ocean_grid_type
 use MOM_time_manager, only : time_type, get_date, operator(-)
 use MOM_variables,    only : thermo_var_ptrs
 
-use fms_mod, only: field_exist, get_global_att_value
 use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING
-use fms_mod, only: write_version_number, read_data, write_data, file_exist
+use fms_mod, only: write_version_number
 use mpp_mod, only: mpp_npes, mpp_pe, mpp_root_pe, mpp_sum, mpp_min, mpp_max, NULL_PE
 use mpp_mod, only: mpp_send, mpp_recv, mpp_sync_self, mpp_chksum
 use mpp_mod, only: mpp_clock_begin, mpp_clock_end, mpp_clock_id
@@ -15,7 +14,6 @@ use mpp_mod, only: CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_LOOP
 
 use mpp_mod, only: mpp_gather
 use fms_mod, only: clock_flag_default
-use fms_io_mod, only: get_instance_filename
 use mpp_domains_mod, only: domain2D, mpp_update_domains, mpp_define_domains
 use mpp_parameter_mod, only: CGRID_NE, BGRID_NE, CORNER, AGRID
 use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_data_domain
@@ -42,8 +40,8 @@ use MOM_particles_framework, only: is_point_within_xi_yj_bounds
 use MOM_particles_framework, only: find_layer, find_depth
 
 
-use MOM_particles_io,        only: particles_io_init,write_restart,write_trajectory
-use MOM_particles_io,        only: read_restart_parts, particles_io_init
+use MOM_particles_io,        only: read_restart_parts,write_restart_parts,write_trajectory
+use MOM_particles_io,        only: particles_io_init
 
 
 
@@ -57,7 +55,6 @@ public particles_to_z_space, particles_to_k_space
 real, parameter :: pi_180=pi/180.  !< Converts degrees to radians
 real, parameter :: r180_pi=180./pi !< Converts radians to degrees
 real, parameter :: Rearth=6360000. !< Radius of earth (m)
-
 
 #ifdef _FILE_VERSION
   character(len=128) :: version = _FILE_VERSION
@@ -84,7 +81,6 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
  stderrunit=stderr()
  stdlogunit=stdlog()
  write(stdlogunit,*) "particles: "//trim(version)
-
  call particles_framework_init(parts, Grid, Time, dt)
  call particles_to_z_space(parts,h)
  call mpp_clock_begin(parts%clock_ior)
@@ -1304,7 +1300,7 @@ real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   call parts_chksum(parts, 'write_restart parts')
-  call write_restart(parts, h, directory, time,stamp)
+  call write_restart_parts(parts, h)
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart
