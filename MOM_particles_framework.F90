@@ -73,7 +73,7 @@ public move_trajectory, move_all_trajectories
 public find_cell, find_cell_by_search, count_parts, is_point_in_cell, pos_within_cell
 public find_layer, find_depth
 public bilin, yearday, parts_chksum, list_chksum, count_parts_in_list
-public linlinx, linliny, jacob2D
+public find_u, find_v, jacob2D
 public checksum_gridded
 public grd_chksum2,grd_chksum3
 public fix_restart_dates, offset_part_dates
@@ -3661,16 +3661,72 @@ integer, intent(in) :: i, j
 real :: linlinxnum, linlinxden
 ! Local variables
 logical :: explain=.false.
+integer :: stderrunit
+  stderrunit=stderr()
 
-    linlinxnum = fld(i,j  )*xi + fld(i-1,j)*(1-xi)
-    linlinxden = jacob2D(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
+    linlinx = fld(i,j  )*xi + fld(i-1,j)*(1-xi)
+
+end function linlinx
+
+real function find_u(grd,fld,x, y, i, j, xi, yj)
+! Arguments
+type(particles_gridded), pointer :: grd
+real, intent(in) :: x, y
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
+!real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+integer, intent(in) :: i, j
+real :: Ul, Vl, u, v
+real :: linlinxnum, jacden
+! Local variables
+real :: x0 !< Longitude of first corner
+real :: y0 !< Latitude of first corner
+real :: x1 !< Longitude of second corner
+real :: y1 !< Latitude of second corner
+real :: x2 !< Longitude of third corner
+real :: y2 !< Latitude of third corner
+real :: x3 !< Longitude of fourth corner
+real :: y3 !< Latitude of fourth corner
+real :: xx, xx0,xx1,xx2,xx3
+real :: Lx
+integer :: stderrunit
+  stderrunit=stderr()
+
+x0 = grd%lon(i-1,j-1)
+x1 = grd%lon(i  ,j-1)
+x2 = grd%lon(i  ,j  )
+x3 = grd%lon(i-1,j  )
+
+y0 = grd%lat(i-1,j-1)
+y1 = grd%lat(i  ,j-1)
+y2 = grd%lat(i  ,j  )
+y3 = grd%lat(i-1,j  )
+
+Lx = grd%Lx
+
+xx= apply_modulo_around_point(x,x0,Lx)
+xx0= apply_modulo_around_point(x0,x0,Lx)
+xx1= apply_modulo_around_point(x1,x0,Lx)
+xx2= apply_modulo_around_point(x2,x0,Lx)
+xx3= apply_modulo_around_point(x3,x0,Lx)
+
+Ul = linlinx(grd,fld,x, y, i, j, xi, yj)
+Vl = linliny(grd,fld,x, y, i, j, xi, yj)
+u = ((-(1-yj)*U - (1-xi)*V)*x0 &
+      + ((1-yj)*U - xi*V)*x1   &
+      + (yj*U + xi*V)*x3       &
+      + (-yj * U + (1-xi)*V)*x3)
+
+jacden = jacob2D(xi, yj, grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                       grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                       grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                       grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
                                       x, y,grd%Lx, explain=.False.)
-    linlinx = linlinxnum/linlinxden
-end function linlinx
+write(stderrunit,*) 'linlinx num, den', u, jacden
 
+
+find_u  = u/jacden
+
+end function find_u
 
 real function linliny(grd,fld,x, y, i, j, xi, yj)
 ! Arguments
@@ -3681,19 +3737,77 @@ real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
 integer, intent(in) :: i, j
 real :: linlinynum, linlinyden
 ! Local variables
+integer :: stderrunit
+  stderrunit=stderr()
 
-    linlinynum = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
-    linlinyden = jacob2D(grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
+    linliny = fld(i,j  )*yj + fld(i,j-1)*(1-yj)
+
+end function linliny
+
+real function find_v(grd,fld,x, y, i, j, xi, yj)
+! Arguments
+type(particles_gridded), pointer :: grd
+real, intent(in) :: x, y
+real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
+!real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
+integer, intent(in) :: i, j
+real :: Ul, Vl, u, v
+real :: linlinxnum, jacden
+! Local variables
+real :: x0 !< Longitude of first corner
+real :: y0 !< Latitude of first corner
+real :: x1 !< Longitude of second corner
+real :: y1 !< Latitude of second corner
+real :: x2 !< Longitude of third corner
+real :: y2 !< Latitude of third corner
+real :: x3 !< Longitude of fourth corner
+real :: y3 !< Latitude of fourth corner
+real :: xx, xx0,xx1,xx2,xx3
+real :: Lx
+integer :: stderrunit
+  stderrunit=stderr()
+
+x0 = grd%lon(i-1,j-1)
+x1 = grd%lon(i  ,j-1)
+x2 = grd%lon(i  ,j  )
+x3 = grd%lon(i-1,j  )
+
+y0 = grd%lat(i-1,j-1)
+y1 = grd%lat(i  ,j-1)
+y2 = grd%lat(i  ,j  )
+y3 = grd%lat(i-1,j  )
+
+Lx = grd%Lx
+
+xx= apply_modulo_around_point(x,x0,Lx)
+xx0= apply_modulo_around_point(x0,x0,Lx)
+xx1= apply_modulo_around_point(x1,x0,Lx)
+xx2= apply_modulo_around_point(x2,x0,Lx)
+xx3= apply_modulo_around_point(x3,x0,Lx)
+
+Ul = linlinx(grd,fld,x, y, i, j, xi, yj)
+Vl = linliny(grd,fld,x, y, i, j, xi, yj)
+v = ((-(1-yj)*U - (1-xi)*V)*y0 &
+      + ((1-yj)*U - xi*V)*y1   &
+      + (yj*U + xi*V)*y2       &
+      + (-yj * U + (1-xi)*V)*y3)
+
+jacden = jacob2D(xi, yj, grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                       grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                       grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                       grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
                                       x, y,grd%Lx, explain=.False.)
-   linliny = linlinynum/linlinyden
-end function linliny
+write(stderrunit,*) 'linlinx num, den', v, jacden
+
+find_v  = v/jacden
 
 
-real function jacob2D(x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, explain)
+end function find_v
+
+real function jacob2D(xi, yj, x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, explain)
 ! Get the stderr unit numberrguments
+real, intent(in) :: xi
+real, intent(in) :: yj
 real, intent(in) :: x0 !< Longitude of first corner
 real, intent(in) :: y0 !< Latitude of first corner
 real, intent(in) :: x1 !< Longitude of second corner
@@ -3713,18 +3827,19 @@ real :: xx0,xx1,xx2,xx3
 integer :: stderrunit
   stderrunit=stderr()
 
+
   xx= apply_modulo_around_point(x,x0,Lx)
   xx0= apply_modulo_around_point(x0,x0,Lx)
   xx1= apply_modulo_around_point(x1,x0,Lx)
   xx2= apply_modulo_around_point(x2,x0,Lx)
   xx3= apply_modulo_around_point(x3,x0,Lx)
 
-  l0=(xx-xx0)*(y1-y0)-(y-y0)*(xx1-xx0)
-  l1=(xx-xx1)*(y2-y1)-(y-y1)*(xx2-xx1)
-  l2=(xx-xx2)*(y3-y2)-(y-y2)*(xx3-xx2)
-  l3=(xx-xx3)*(y0-y3)-(y-y3)*(xx0-xx3)
+   l0 = xx0*(yj-1) + xx1*(1-yj) + xx2*yj-xx3*yj
+   l1 = xx0*(xi-1)- xx1*xi + xx2*xi + xx3*(1-xi)
+   l2 = y0*(yj-1) + y1*(1-yj) + y2*yj-y3*yj
+   l3 = y0*(xi-1) - y1*xi + y2 *xi +y3*(1-xi)
    
-  jacob2D = l0*l3-l1*l2
+  jacob2D = l0*l3 - l2*l3
 end function jacob2D
 
 ! ##############################################################################

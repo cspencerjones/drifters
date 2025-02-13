@@ -29,7 +29,7 @@ use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, 
 use MOM_particles_framework, only: verbose, really_debug,debug,use_roundoff_fix
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell
 use MOM_particles_framework, only: bilin,yearday,count_parts,parts_chksum
-use MOM_particles_framework, only: linlinx,linliny
+use MOM_particles_framework, only: find_u, find_v
 use MOM_particles_framework, only: checksum_gridded,add_new_part_to_list
 use MOM_particles_framework, only: send_parts_to_other_pes,move_trajectory,move_all_trajectories
 use MOM_particles_framework, only: record_posn,check_position,print_part,print_parts,print_fld
@@ -128,7 +128,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
     jv=j
  endif
  !uo=linlinx(grd, grd%uo(:,:,kint), i+1, j, xi,yj)
- uo=linlinx(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i+1, j, xi, yj)
+ uo=find_u(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i+1, j, xi, yj)
  xiu = xi+0.5
  if (xiu>1) then
      xiu= xiu-1.
@@ -136,7 +136,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
  else
     iu=i
  endif
- vo=linliny(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i, j+1, xi, yj)
+ vo=find_v(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i, j+1, xi, yj)
  !vo=linliny(grd, grd%vo(:,:,kint), i, j+1, xi, yj)
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
