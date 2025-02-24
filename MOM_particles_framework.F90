@@ -3668,13 +3668,14 @@ integer :: stderrunit
 
 end function linlinx
 
-real function find_u(grd,fld,x, y, i, j, xi, yj)
+real function find_u(grd,fld,x, y, i, j, xi, yj, dx_dlon, dy_dlat)
 ! Arguments
 type(particles_gridded), pointer :: grd
 real, intent(in) :: x, y
 real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
 !real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
 integer, intent(in) :: i, j
+real, intent(in) :: dx_dlon, dy_dlat
 real :: Ul, Vl, u, v
 real :: linlinxnum, jacden
 ! Local variables
@@ -3687,6 +3688,8 @@ real :: y2 !< Latitude of third corner
 real :: x3 !< Longitude of fourth corner
 real :: y3 !< Latitude of fourth corner
 real :: xx, xx0,xx1,xx2,xx3
+real :: l0, l1, l2, l3
+real :: dxidt, detadt
 real :: Lx
 integer :: stderrunit
   stderrunit=stderr()
@@ -3711,21 +3714,33 @@ xx3= apply_modulo_around_point(x3,x0,Lx)
 
 Ul = linlinx(grd,fld,x, y, i, j, xi, yj)
 Vl = linliny(grd,fld,x, y, i, j, xi, yj)
-u = ((-(1-yj)*U - (1-xi)*V)*x0 &
-      + ((1-yj)*U - xi*V)*x1   &
-      + (yj*U + xi*V)*x3       &
-      + (-yj * U + (1-xi)*V)*x3)
+u = ((-(1-yj)*Ul - (1-xi)*Vl)*x0 &
+      + ((1-yj)*Ul - xi*Vl)*x1   &
+      + (yj*Ul + xi*Vl)*x2       &
+      + (-yj * Ul + (1-xi)*Vl)*x3)
+
+v = ((-(1-yj)*Ul - (1-xi)*Vl)*y0 &
+      + ((1-yj)*Ul - xi*Vl)*y1   &
+      + (yj*Ul + xi*Vl)*y2       &
+      + (-yj * Ul + (1-xi)*Vl)*y3)
 
 jacden = jacob2D(xi, yj, grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                       grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                       grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                       grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                      x, y,grd%Lx, explain=.False.)
-write(stderrunit,*) 'linlinx num, den', u, jacden
+                                      x, y,grd%Lx, l0, l1, l2, l3, &
+                                        explain=.False.)
 
 
-find_u  = u/jacden
 
+dxidt = u/(jacden*dy_dlat)
+detadt = v/(jacden*dy_dlat)
+
+
+find_u  = dxidt*l0 + detadt*l1
+
+!write(stderrunit,*) 'find_u: u, v, dxidt, detadt, find_u, l0, l1', u, v, dxidt, detadt, find_u, l0, l1
+!write(stderrunit,*) 'find_u: u, Ul, Vl', u, Ul, Vl
 end function find_u
 
 real function linliny(grd,fld,x, y, i, j, xi, yj)
@@ -3744,13 +3759,14 @@ integer :: stderrunit
 
 end function linliny
 
-real function find_v(grd,fld,x, y, i, j, xi, yj)
+real function find_v(grd,fld,x, y, i, j, xi, yj, dx_dlon, dy_dlat)
 ! Arguments
 type(particles_gridded), pointer :: grd
 real, intent(in) :: x, y
 real, intent(in) :: fld(grd%isd:grd%ied+1,grd%jsd:grd%jed+1), xi, yj
 !real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
 integer, intent(in) :: i, j
+real, intent(in) :: dx_dlon, dy_dlat
 real :: Ul, Vl, u, v
 real :: linlinxnum, jacden
 ! Local variables
@@ -3763,6 +3779,8 @@ real :: y2 !< Latitude of third corner
 real :: x3 !< Longitude of fourth corner
 real :: y3 !< Latitude of fourth corner
 real :: xx, xx0,xx1,xx2,xx3
+real :: l0, l1, l2, l3
+real :: dxidt, detadt
 real :: Lx
 integer :: stderrunit
   stderrunit=stderr()
@@ -3787,24 +3805,29 @@ xx3= apply_modulo_around_point(x3,x0,Lx)
 
 Ul = linlinx(grd,fld,x, y, i, j, xi, yj)
 Vl = linliny(grd,fld,x, y, i, j, xi, yj)
-v = ((-(1-yj)*U - (1-xi)*V)*y0 &
-      + ((1-yj)*U - xi*V)*y1   &
-      + (yj*U + xi*V)*y2       &
-      + (-yj * U + (1-xi)*V)*y3)
+v = ((-(1-yj)*Ul - (1-xi)*Vl)*y0 &
+      + ((1-yj)*Ul - xi*Vl)*y1   &
+      + (yj*Ul + xi*Vl)*y2       &
+      + (-yj * Ul + (1-xi)*Vl)*y3)
 
 jacden = jacob2D(xi, yj, grd%lon(i-1,j-1),grd%lat(i-1,j-1), &
                                       grd%lon(i  ,j-1),grd%lat(i  ,j-1), &
                                       grd%lon(i  ,j  ),grd%lat(i  ,j  ), &
                                       grd%lon(i-1,j  ),grd%lat(i-1,j  ), &
-                                      x, y,grd%Lx, explain=.False.)
-write(stderrunit,*) 'linlinx num, den', v, jacden
+                                      x, y,grd%Lx, l0, l1, l2, l3, &
+                                       explain=.False.)
 
-find_v  = v/jacden
+dxidt = u/(jacden*dx_dlon)
+detadt = v/(jacden*dx_dlon)
 
+
+find_v  = dxidt*l2 + detadt*l3
+
+!write(stderrunit,*) 'find_v: u, v, dxidt, detadt, find_v', u, v, dxidt, detadt, find_v
 
 end function find_v
 
-real function jacob2D(xi, yj, x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, explain)
+real function jacob2D(xi, yj, x0, y0, x1, y1, x2, y2, x3, y3, x, y, Lx, l0, l1,l2, l3, explain)
 ! Get the stderr unit numberrguments
 real, intent(in) :: xi
 real, intent(in) :: yj
@@ -3820,9 +3843,9 @@ real, intent(in) :: x !< Longitude of point
 real, intent(in) :: y !< Latitude of point
 real, intent(in) :: Lx !< Length of domain in zonal direction
 logical, intent(in) :: explain
+real, intent(out) :: l0,l1,l2,l3
 ! Local variables
 real :: xx
-real :: l0,l1,l2,l3
 real :: xx0,xx1,xx2,xx3
 integer :: stderrunit
   stderrunit=stderr()
