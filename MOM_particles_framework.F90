@@ -24,7 +24,7 @@ use mpp_domains_mod, only: CYCLIC_GLOBAL_DOMAIN, FOLD_NORTH_EDGE
 use mpp_domains_mod, only: mpp_get_neighbor_pe, NORTH, SOUTH, EAST, WEST
 use mpp_domains_mod, only: mpp_define_io_domain
 use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING
-use fms_mod, only: open_namelist_file, check_nml_error, close_file
+use fms_mod, only: check_nml_error
 use fms_mod, only: clock_flag_default
 use time_manager_mod, only: time_type, get_date, get_time, set_date, operator(-)
 use diag_manager_mod, only: register_diag_field, register_static_field, send_data
@@ -32,8 +32,8 @@ use diag_manager_mod, only: diag_axis_init
 
 implicit none ; private
 
-integer :: buffer_width=20 ! size of buffer dimension for comms
-integer :: buffer_width_traj=17  
+integer :: buffer_width=21 ! size of buffer dimension for comms
+integer :: buffer_width_traj=17
 logical :: folded_north_on_pe = .false. !< If true, indicates the presence of the tri-polar grid
 logical :: verbose=.false. !< Be verbose to stderr
 logical :: debug=.false. !< Turn on debugging
@@ -42,7 +42,6 @@ logical :: parallel_reprod=.true. !< Reproduce across different PE decomposition
 logical :: use_slow_find=.true. !< Use really slow (but robust) find_cell for reading restarts
 logical :: ignore_ij_restart=.false. !< Read i,j location from restart if available (needed to use restarts on different grids)
 logical :: use_roundoff_fix=.true. !< Use a "fix" for the round-off discrepancy between is_point_in_cell() and pos_within_cell()
-logical :: old_bug_bilin=.true. !< If true, uses the inverted bilinear function (use False to get correct answer)
 character(len=10) :: restart_input_dir = 'INPUT/' !< Directory to look for restart files
 integer, parameter :: delta_buf=25 !< Size by which to increment buffers
 real, parameter :: pi_180=pi/180. !< Converts degrees to radians
@@ -53,7 +52,7 @@ logical :: force_all_pes_traj=.false. !< Force all pes write trajectory files re
 
 !Public params !Niki: write a subroutine to expose these
 public buffer_width,buffer_width_traj
-public verbose, really_debug, debug, restart_input_dir,old_bug_bilin,use_roundoff_fix
+public verbose, really_debug, debug, restart_input_dir,use_roundoff_fix
 public ignore_ij_restart, use_slow_find
 public force_all_pes_traj
 
@@ -128,9 +127,9 @@ type :: particles_gridded
   real, dimension(:,:,:), allocatable :: vo !< Ocean meridional flow (m/s)
   real, dimension(:,:,:), allocatable :: hdepth !< Cumulative thickness from ocen surf
   real, dimension(:,:), allocatable :: tmp !< Temporary work space
-  real, dimension(:,:), allocatable :: tmpc !< Temporary work space
-  real, dimension(:,:), allocatable :: parity_x !< X component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
-  real, dimension(:,:), allocatable :: parity_y !< Y component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
+  !real, dimension(:,:), allocatable :: tmpc !< Temporary work space
+  !real, dimension(:,:), allocatable :: parity_x !< X component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
+  !real, dimension(:,:), allocatable :: parity_y !< Y component of vector point from i,j to i+1,j+1 (for detecting tri-polar fold)
   integer, dimension(:,:), allocatable :: particle_counter_grd !< Counts particles created for naming purposes
   !>@{
   !! Diagnostic handle
@@ -147,9 +146,10 @@ type :: xyt
   real :: uvel, vvel         !< Current velocity components (m/s)
   real :: uvel_old, vvel_old !< Previous velocity components (m/s)
   real :: theta
-  integer :: year, particle_num  !< Current year and particle number
+  integer :: year, drifter_num  !< Current year and particle number
   integer(kind=8) :: id = -1 !< Particle Identifier
   real :: k !<Current vertical level i which the particle resides
+  real :: k_fixed = -1 !< If positive, level at which the floater is supposed to stay permanently
   real :: depth !<Current depth of the particle
   logical :: k_space      !<Logical indicating whether particle is in k (vs z)
   type(xyt), pointer :: next=>null()  !< Pointer to the next position in the list
@@ -169,6 +169,7 @@ type :: particle
   integer(kind=8) :: id,drifter_num             !< particle identifier
   integer :: ine, jne                           !< nearest index in NE direction (for convenience)
   real :: k                 !<vertical level of particle
+  real :: k_fixed = -1      !<if positive, vertical level at which the floater is supposed to stay permanently
   logical :: k_space        !<flag for whether depth is stored in kspace (vs z)
   real :: xi, yj                                !< non-dimensional coords within current cell (0..1)
   real :: uo, vo                                !< zonal and meridional ocean velocities experienced
@@ -205,6 +206,7 @@ type :: particles !; private
   integer :: clock_trw, clock_trp
   !>@}
   logical :: restarted=.false. !< Indicate whether we read state from a restart or not
+  logical :: require_restart=.false. !< If true, requires a restart file to be present when starting the model.
   logical :: Runge_not_Verlet=.True. !< True=Runge-Kutta, False=Verlet.
   logical :: xystagger=.False.
   logical :: ignore_missing_restart_parts=.False. !< True allows the model to ignore particles missing in the restart.
@@ -286,7 +288,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          debug, really_debug, ignore_missing_restart_parts, &
          parallel_reprod, use_slow_find, ignore_ij_restart, use_new_predictive_corrective, halo_debugging, &
          fix_restart_dates, use_roundoff_fix, Runge_not_Verlet, &
-         restart_input_dir, old_bug_bilin,do_unit_tests, force_all_pes_traj, &
+         restart_input_dir,do_unit_tests, force_all_pes_traj, &
          grid_is_latlon,Lx, no_TS, &
          grid_is_regular, &
          generate_days, generate_lons, generate_lats, generate_d, &
@@ -305,13 +307,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   stdlogunit=stdlog()
   write(stdlogunit,*) "particles_framework: "//trim(version)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=particles_nml, iostat=ierr)
-#else
-  iunit = open_namelist_file()
-  read  (iunit, particles_nml,iostat=ierr)
-  call close_file (iunit)
-#endif
   ierr = check_nml_error(ierr,'particles_nml')
 
   if (really_debug) debug=.true. ! One implies the other...
@@ -361,8 +357,8 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   big_number=1.0E15
   allocate( grd%lon(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%lon(:,:)=big_number
   allocate( grd%lat(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%lat(:,:)=big_number
-  allocate( grd%lonc(grd%isd:grd%ied, grd%jsd:grd%jed) );grd%lon(:,:)=big_number
-  allocate( grd%latc(grd%isd:grd%ied, grd%jsd:grd%jed) );grd%lat(:,:)=big_number
+  allocate( grd%lonc(grd%isd:grd%ied, grd%jsd:grd%jed) );grd%lonc(:,:)=big_number
+  allocate( grd%latc(grd%isd:grd%ied, grd%jsd:grd%jed) );grd%latc(:,:)=big_number
   allocate( grd%dx(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%dx(:,:)=0.
   allocate( grd%dy(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%dy(:,:)=0.
   allocate( grd%area(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%area(:,:)=0.
@@ -373,36 +369,39 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   allocate( grd%uo(grd%isd:grd%ied, grd%jsd:grd%jed,grd%ke) ); grd%uo(:,:,:)=0.
   allocate( grd%vo(grd%isd:grd%ied, grd%jsd:grd%jed,grd%ke) ); grd%vo(:,:,:)=0.
   allocate( grd%tmp(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%tmp(:,:)=0.
-  allocate( grd%tmpc(grd%isc:grd%iec, grd%jsc:grd%jec) ); grd%tmpc(:,:)=0.
-  allocate( grd%parity_x(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%parity_x(:,:)=1.
-  allocate( grd%parity_y(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%parity_y(:,:)=1.
+  !The following are not used/needed
+  !allocate( grd%tmpc(grd%isc:grd%iec, grd%jsc:grd%jec) ); grd%tmpc(:,:)=0.
+  !allocate( grd%parity_x(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%parity_x(:,:)=1.
+  !allocate( grd%parity_y(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%parity_y(:,:)=1.
   allocate( grd%particle_counter_grd(grd%isd:grd%ied, grd%jsd:grd%jed) ); grd%particle_counter_grd(:,:)=0
-
+  !Niki: MOM6 is on C grid. Shouldn't the role of (lon,lat) and (lonc,latc) be reversed?
 
   is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
   grd%lon(is:ie,js:je)=Grid%geolonBu(is:ie,js:je)
   grd%lat(is:ie,js:je)=Grid%geolatBu(is:ie,js:je)
   grd%area(is:ie,js:je)=Grid%areaBu(is:ie,js:je) !sis2 has *(4.*pi*radius*radius)
   grd%ocean_depth(is:ie,js:je) = Grid%bathyT(is:ie,js:je)
-  is=grd%isc; ie=grd%iec; js=grd%jsc; je=grd%jec
-!  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:)!je
-  grd%dx(:,:)=Grid%dxCu(:,:)
-!  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:)!je
-  grd%dy(:,:)=Grid%dyCv(:,:)!je
+  grd%dx(is:ie,js:je)=Grid%dxCu(is:ie,js:je)
+  grd%dy(is:ie,js:je)=Grid%dyCv(is:ie,js:je)
+!  grd%dx(:,:)=Grid%dxCu(:,:) !This cause crash in debug mode
+!  grd%dy(:,:)=Grid%dyCv(:,:) !This cause crash in debug mode
   grd%msk(is:ie,js:je)=Grid%mask2dBu(is:ie,js:je)
   grd%cos(is:ie,js:je)=Grid%cos_rot(is:ie,js:je)
   grd%sin(is:ie,js:je)=Grid%sin_rot(is:ie,js:je)
 
   call mpp_update_domains(grd%lon, grd%domain)
   call mpp_update_domains(grd%lat, grd%domain)
-  call mpp_update_domains(grd%dy, grd%dx, grd%domain, gridtype=CGRID_NE, flags=SCALAR_PAIR)
+  !Niki: The following call causes a strange memory issue with deallocating grd%latc
+  !      Check why this call is here and why issue happens
+  !call mpp_update_domains(grd%dy, grd%dx, grd%domain, gridtype=CGRID_NE, flags=SCALAR_PAIR)
+!  deallocate(grd%latc)
+!  return
   call mpp_update_domains(grd%area, grd%domain)
   call mpp_update_domains(grd%msk, grd%domain)
   call mpp_update_domains(grd%cos, grd%domain, position=CENTER)
   call mpp_update_domains(grd%sin, grd%domain, position=CENTER)
   call mpp_update_domains(grd%ocean_depth, grd%domain)
-  call mpp_update_domains(grd%parity_x, grd%parity_y, grd%domain, gridtype=AGRID) ! If either parity_x/y is -ve, we need rotation of vectors
-
+  !call mpp_update_domains(grd%parity_x, grd%parity_y, grd%domain, gridtype=AGRID) ! If either parity_x/y is -ve, we need rotation of vectors
 
 
   ! Sanitize lon and lat in the southern halo
@@ -474,13 +473,17 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   grd%lat(is:ie,js:je)=Grid%geolatBu(is:ie,js:je)
 
   ! WE SHOULD JUST COPY geolonC,geolatC instead (MJH)
+  grd%lonc(is:ie,js:je)=Grid%geoLonCu(is:ie,js:je)
+  grd%latc(is:ie,js:je)=Grid%geoLatCu(is:ie,js:je)
+
   ! lonc, latc used for searches
-  do j=grd%jsd+1,grd%jed; do i=grd%isd+1,grd%ied
-    grd%lonc(i,j)=0.25*( (grd%lon(i,j)+grd%lon(i-1,j-1)) &
-                        +(grd%lon(i-1,j)+grd%lon(i,j-1)) )
-    grd%latc(i,j)=0.25*( (grd%lat(i,j)+grd%lat(i-1,j-1)) &
-                        +(grd%lat(i-1,j)+grd%lat(i,j-1)) )
-  enddo; enddo
+  !do j=grd%jsd+1,grd%jed; do i=grd%isd+1,grd%ied  !This cannot be correct
+  !do j=grd%jsc,grd%jec; do i=grd%isc,grd%iec      !Should be this followd by halo updates
+  !    grd%lonc(i,j)=0.25*( (grd%lon(i,j)+grd%lon(i-1,j-1)) &
+  !                      +(grd%lon(i-1,j)+grd%lon(i,j-1)) )
+  !    grd%latc(i,j)=0.25*( (grd%lat(i,j)+grd%lat(i-1,j-1)) &
+  !                        +(grd%lat(i-1,j)+grd%lat(i,j-1)) )
+  !enddo; enddo
 
   if (debug) then
     write(stderrunit,'(a,i3,a,4i4,a,4f8.2)') 'particles, particles_init: (',mpp_pe(),') [ij][se]c=', &
@@ -535,7 +538,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
     elseif (generate_days==0) then ! .and. 365*(iyr-1)+iday-1==0) then
       lgenerate = .true.
     endif
-    if (lgenerate) then 
+    if (lgenerate) then
        call generate_grid_of_particles(parts, &
                           generate_lons(1), generate_lons(2), generate_lons(3), &
                           generate_lats(1), generate_lats(2), generate_lats(3), &
@@ -1343,6 +1346,7 @@ integer :: kspace_int
   call push_buffer_value(buff%data(:,n), counter, part%ine)
   call push_buffer_value(buff%data(:,n), counter, part%jne)
   call push_buffer_value(buff%data(:,n), counter, part%k)
+  call push_buffer_value(buff%data(:,n), counter, part%k_fixed)
   call push_buffer_value(buff%data(:,n), counter, kspace_int)
   call push_buffer_value(buff%data(:,n), counter, part%halo_part)
 
@@ -1357,7 +1361,8 @@ subroutine push_buffer_rvalue(vbuf, counter, val)
   real,               intent(in)    :: val     !< Value to place in buffer
 
   counter = counter + 1
-  if (counter > size(vbuf)) stop 'OOB in push_buffer_rvalue'
+  if (counter > size(vbuf))&
+     call error_mesg('MOM_particles_framework: push_buffer_rvalue ', 'OOB error', FATAL)
   vbuf(counter) = val
 
 end subroutine push_buffer_rvalue
@@ -1369,7 +1374,8 @@ subroutine push_buffer_ivalue(vbuf, counter, val)
   integer,            intent(in)    :: val     !< Value to place in buffer
 
   counter = counter + 1
-  if (counter > size(vbuf)) stop 'OOB in push_buffer_ivalue'
+  if (counter > size(vbuf))&
+     call error_mesg('MOM_particles_framework: push_buffer_ivalue ', 'OOB error', FATAL)
   vbuf(counter) = float(val)
 
 end subroutine push_buffer_ivalue
@@ -1480,6 +1486,7 @@ logical :: quick
   call pull_buffer_value(buff%data(:,n), counter, localpart%ine)
   call pull_buffer_value(buff%data(:,n), counter, localpart%jne)
   call pull_buffer_value(buff%data(:,n), counter, localpart%k)
+  call pull_buffer_value(buff%data(:,n), counter, localpart%k_fixed)
   call pull_buffer_value(buff%data(:,n), counter, kspace_int)
   call pull_buffer_value(buff%data(:,n), counter, localpart%halo_part)
 
@@ -1667,10 +1674,11 @@ end subroutine increase_ibuffer
     buff%data(11,n)=traj%vvel_old !Alon
     buff%data(12,n)=traj%lon_old !Alon
     buff%data(13,n)=traj%lat_old !Alon
-    buff%data(14,n)=traj%particle_num !Alon
+    buff%data(14,n)=traj%drifter_num !Alon
     buff%data(15,n)=traj%k
     buff%data(16,n)=traj%k_space
     buff%data(17,n)=traj%depth
+    buff%data(18,n)=traj%k_fixed
 
   end subroutine pack_traj_into_buffer2
 
@@ -1689,7 +1697,7 @@ end subroutine increase_ibuffer
     traj%lat=buff%data(2,n)
 !    traj%year=nint(buff%data(3,n))
     traj%day=buff%data(3,n)
-    traj%year=buff%data(4,n) 
+    traj%year=buff%data(4,n)
     cnt = nint(buff%data(5,n))
     ij = nint(buff%data(6,n))
     traj%id = id_from_2_ints(cnt, ij)
@@ -1700,10 +1708,11 @@ end subroutine increase_ibuffer
     traj%vvel_old=buff%data(11,n) !Alon
     traj%lon_old=buff%data(12,n) !Alon
     traj%lat_old=buff%data(13,n) !Alon
-    traj%particle_num=buff%data(14,n)
-    traj%k=buff%data(15,n) 
+    traj%drifter_num=buff%data(14,n)
+    traj%k=buff%data(15,n)
     traj%k_space=buff%data(16,n)
     traj%depth=buff%data(17,n)
+    traj%k_fixed=buff%data(18,n)
 
     call append_posn(first, traj)
 
@@ -1881,7 +1890,7 @@ integer function ij_component_of_id(grd, i, j)
   integer :: jg ! Global j-index
 
   ! Using the current grid shape maximizes the numbers of IDs that can be represented
-  ! allowing up to 30-minute uniform global resolution, or potentially finer if non-uniform. 
+  ! allowing up to 30-minute uniform global resolution, or potentially finer if non-uniform.
   iNg = grd%ieg - grd%isg + 1
 
   ig = i + grd%is_offset ! Calculate global i-index
@@ -1976,7 +1985,7 @@ end subroutine insert_part_into_list
 
 ! ##############################################################################
 
-logical function inorder(part1, part2)  !MP Alon - Change to include particle_num
+logical function inorder(part1, part2)  !MP Alon - Change to include drifter_num
 ! Arguments
 type(particle), pointer :: part1, part2
 ! Local variables
@@ -2276,23 +2285,24 @@ integer :: stderrunit
       posn%lat=this%lat
       posn%k=this%k
 
-      
+
       kspace_copy = this%k_space
       call find_depth(grd,this%k,h,this%depth,this%ine,this%jne,this%xi,this%yj,kspace_copy)
       if (grd%no_TS) then
-         posn%theta = -999.0 
-      else 
-          posn%theta = bilin(grd,thetao(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj)  
+         posn%theta = -999.0
+      else
+          posn%theta = bilin(grd,thetao(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj)
       endif
 
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
 !                     'particles, theta: pe=(',mpp_pe(),') k, xi, xj, theta', &
-!                     floor(this%k), this%lon, this%lat, posn%theta  
+!                     floor(this%k), this%lon, this%lat, posn%theta
       posn%depth=this%depth
+      posn%k_fixed=this%k_fixed
       posn%year=parts%current_year
       posn%day=parts%current_yearday
       posn%id=this%id
-      posn%particle_num=this%drifter_num
+      posn%drifter_num=this%drifter_num
       if (.not. parts%save_short_traj) then !Not totally sure that this is correct
         posn%uvel=this%uvel
         posn%vvel=this%vvel
@@ -2403,7 +2413,7 @@ integer :: grdi, grdj
     do while (associated(this))
       next=>this%next
       call move_trajectory(parts, this)
-   !  if (delete_parts_after_moving_traj) call destroy_particle(this)
+      if (delete_parts_after_moving_traj) call destroy_particle(this)
       this=>next
     enddo
   enddo ; enddo
@@ -3149,13 +3159,13 @@ real, intent(in) :: depth
 real, dimension(:),intent(in) :: hdepth
 !real, intent(out) :: k
 
-!Local                                                                          
+!Local
 integer :: klev
 real :: rdepth
 integer :: stderrunit
 
 
-  ! Get the stderr unit number                                                                                
+  ! Get the stderr unit number
   stderrunit=stderr()
 
 
@@ -3201,7 +3211,7 @@ integer :: klev
 real :: rdepth
 integer :: stderrunit
 real, dimension(grd%ke) :: hdepth1D
-real, dimension(grd%ke) :: hdepth1Dcum                                                
+real, dimension(grd%ke) :: hdepth1Dcum
 
   ! Get the stderr unit number
   stderrunit=stderr()
@@ -3218,8 +3228,8 @@ do klev=1,grd%ke
         hdepth1Dcum(klev) =hdepth1D(klev)
     else
         hdepth1Dcum(klev)=hdepth1Dcum(klev-1)+hdepth1D(klev)
-    endif 
-enddo 
+    endif
+enddo
 
    k = find_layer1D(grd, depth,hdepth1Dcum)
 
@@ -3246,7 +3256,7 @@ integer :: stderrunit
   ! Get the stderr unit number
 
   stderrunit=stderr()
-  
+
 kint=floor(k)
 
 !if (kint.eq.0)then
@@ -3265,11 +3275,11 @@ enddo
 
 end function find_depth1D
 
-! ############################################################################## 
-!>Finds what depth the particle is at  
+! ##############################################################################
+!>Finds what depth the particle is at
 subroutine find_depth(grd,k,h,depth,ine,jne,xi,yj,k_space)
 !Arguments
-type(particles_gridded), pointer :: grd !< Container for gridded fields 
+type(particles_gridded), pointer :: grd !< Container for gridded fields
 real, intent(in) :: k
 real, dimension(:,:,:),intent(in) :: h
 real, intent(out) :: depth
@@ -3568,7 +3578,7 @@ integer :: grdi, grdj
   call mpp_sum(nparts)
   if (mpp_pe().eq.mpp_root_pe()) &
     write(*,'("particles, parts_chksum: ",a18,6(x,a,"=",i22))') &
-      txt, 'chksum', ichk1, 'chksum2', ichk2, 'chksum3', ichk3, 'chksum4', ichk4, 'chksum5', ichk5, '#', nparts
+      txt, '#particles', nparts, 'chksum', ichk1, 'chksum2', ichk2, 'chksum3', ichk3, 'chksum4', ichk4, 'chksum5', ichk5
 
   grd%tmp(:,:)=real(icnt(:,:))
 !  call grd_chksum2(grd,grd%tmp,'# of parts/cell')
@@ -3650,13 +3660,13 @@ real, intent(in) :: fld(grd%isd:grd%ied,grd%jsd:grd%jed), xi, yj
 integer, intent(in) :: i, j
 ! Local variables
 
-
     bilin=(fld(i,j  )*xi+fld(i-1,j  )*(1.-xi))*yj &
          +(fld(i,j-1)*xi+fld(i-1,j-1)*(1.-xi))*(1.-yj)
 
 end function bilin
 
-! #############################################################################
+! ##################################################################
+!Newer versions from Spence Jones
 
 real function linlinx(grd,fld,x,y,i,j,xi,yj)
 ! Arguments
@@ -3749,7 +3759,7 @@ find_u = u/(jacden*dy_dlat)
 !write(stderrunit,*) 'find_u: u, Ul, Vl, jacden, dy_dlat', u, Ul, Vl, jacden, dy_dlat
 end function find_u
 
-real function linliny(grd,fld,x, y, i, j, xi, yj)
+real function linliny0(grd,fld,x, y, i, j, xi, yj)
 ! Arguments
 type(particles_gridded), pointer :: grd
 real, intent(in) :: x, y
@@ -3909,14 +3919,14 @@ logical function unit_tests(parts)
   integer :: stderrunit,i,j,c1,c2
   integer :: k1
   integer(kind=8) :: id
-  real, dimension(parts%grd%ke) :: hdummy 
+  real, dimension(parts%grd%ke) :: hdummy
   real, dimension(parts%grd%ke) :: hddummy
 
   ! This function returns True is a unit test fails
   unit_tests=.false.
   ! For convenience
   grd=>parts%grd
- 
+
  hdummy(1) = 100
  hddummy(1) = 100
   do k1 =2,grd%ke

@@ -5,9 +5,8 @@ use MOM_grid,         only : ocean_grid_type
 use MOM_time_manager, only : time_type, get_date, operator(-)
 use MOM_variables,    only : thermo_var_ptrs
 
-use fms_mod, only: field_exist, get_global_att_value
 use fms_mod, only: stdlog, stderr, error_mesg, FATAL, WARNING
-use fms_mod, only: write_version_number, read_data, write_data, file_exist
+use fms_mod, only: write_version_number
 use mpp_mod, only: mpp_npes, mpp_pe, mpp_root_pe, mpp_sum, mpp_min, mpp_max, NULL_PE
 use mpp_mod, only: mpp_send, mpp_recv, mpp_sync_self, mpp_chksum
 use mpp_mod, only: mpp_clock_begin, mpp_clock_end, mpp_clock_id
@@ -15,7 +14,6 @@ use mpp_mod, only: CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_LOOP
 
 use mpp_mod, only: mpp_gather
 use fms_mod, only: clock_flag_default
-use fms_io_mod, only: get_instance_filename
 use mpp_domains_mod, only: domain2D, mpp_update_domains, mpp_define_domains
 use mpp_parameter_mod, only: CGRID_NE, BGRID_NE, CORNER, AGRID
 use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_data_domain
@@ -29,7 +27,8 @@ use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, 
 use MOM_particles_framework, only: verbose, really_debug,debug,use_roundoff_fix
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell
 use MOM_particles_framework, only: bilin,yearday,count_parts,parts_chksum
-use MOM_particles_framework, only: find_u, find_v
+use MOM_particles_framework, only: linlinx0,linliny0
+use MOM_particles_framework, only: find_u,find_v
 use MOM_particles_framework, only: checksum_gridded,add_new_part_to_list
 use MOM_particles_framework, only: send_parts_to_other_pes,move_trajectory,move_all_trajectories
 use MOM_particles_framework, only: record_posn,check_position,print_part,print_parts,print_fld
@@ -42,8 +41,8 @@ use MOM_particles_framework, only: is_point_within_xi_yj_bounds
 use MOM_particles_framework, only: find_layer, find_depth
 
 
-use MOM_particles_io,        only: particles_io_init,write_restart,write_trajectory
-use MOM_particles_io,        only: read_restart_parts, particles_io_init
+use MOM_particles_io,        only: read_restart_parts,write_restart_parts,write_trajectory
+use MOM_particles_io,        only: particles_io_init
 
 
 
@@ -57,7 +56,6 @@ public particles_to_z_space, particles_to_k_space
 real, parameter :: pi_180=pi/180.  !< Converts degrees to radians
 real, parameter :: r180_pi=180./pi !< Converts radians to degrees
 real, parameter :: Rearth=6360000. !< Radius of earth (m)
-
 
 #ifdef _FILE_VERSION
   character(len=128) :: version = _FILE_VERSION
@@ -84,7 +82,6 @@ subroutine particles_init(parts, Grid, Time, dt, u, v, h)
  stderrunit=stderr()
  stdlogunit=stdlog()
  write(stdlogunit,*) "particles: "//trim(version)
-
  call particles_framework_init(parts, Grid, Time, dt)
  call particles_to_z_space(parts,h)
  call mpp_clock_begin(parts%clock_ior)
@@ -110,7 +107,6 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
  real, intent(out) :: uo, vo
  ! Local variables
  real :: cos_rot, sin_rot
- real :: hxm, hxp
  integer :: kint
  real  ::  xiu,yjv
  real :: dx_dlon, dy_dlat
@@ -191,8 +187,9 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
   real, dimension(:,:,:),allocatable :: h_upoints, h_vpoints
   real, dimension(:,:), allocatable :: iCount
   integer :: stderrunit
-
-
+  integer :: nparts
+  integer :: vel_stagger
+  vel_stagger = CGRID_NE !; if (present(stagger)) vel_stagger = stagger
   ! Get the stderr unit number
   stderrunit = stderr()
 
@@ -224,10 +221,15 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
      if (mod(24*iday+ihr+(imin/60.),float(parts%verbose_hrs)).eq.0) lverbose=verbose
   endif
 
-  if (mpp_pe()==mpp_root_pe().and.lverbose) write(*,'(a,3i5,a,3i5,a,i5,f8.3)') &
-       'diamonds: y,m,d=',iyr, imon, iday,' h,m,s=', ihr, imin, isec, &
-       ' yr,yrdy=', parts%current_year, parts%current_yearday
-
+  if (parts%traj_sample_hrs == 0) sample_traj=.true.
+  if (parts%traj_write_hrs == 0) write_traj=.true.
+  if (parts%verbose_hrs == 0) lverbose=.true.
+  nparts=count_parts(parts)
+  call mpp_sum(nparts)
+  if (mpp_pe()==mpp_root_pe().and.lverbose) write(*,'(a,3i5,a,3i5,a,i5,f8.3,a,i5)') &
+       'MOM_particles: y,m,d=',iyr, imon, iday,' h,m,s=', ihr, imin, isec, &
+       ' yr,yrdy=', parts%current_year, parts%current_yearday, &
+       ' number of particles',nparts
 
  ! SPENCER: here is where we need to pass all ocean velocities
 
@@ -240,10 +242,32 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
     enddo
     !parts%dt = dt_adv
   else
-    do k=1,grd%ke
-      grd%uo(:,:,k) = uo(:,:,k)*grd%dy(:,:)
-      grd%vo(:,:,k) = vo(:,:,k)*grd%dx(:,:)
-    enddo
+    !original. Why *dx ?
+    !grd%uo(:,:,k) = uo(:,:,k)*grd%dy(:,:)
+    !grd%vo(:,:,k) = vo(:,:,k)*grd%dx(:,:)
+    !icebergs code
+    if (vel_stagger == BGRID_NE) then
+      ! Copy ocean and ice velocities. They are already on B-grid u-points.
+      grd%uo(grd%isc-1:grd%iec+1,grd%jsc-1:grd%jec+1,:) = uo(:,:,:)
+      grd%vo(grd%isc-1:grd%iec+1,grd%jsc-1:grd%jec+1,:) = vo(:,:,:)
+      call mpp_update_domains(grd%uo, grd%vo, grd%domain, gridtype=BGRID_NE)
+    elseif (vel_stagger == CGRID_NE) then
+      ! The u- and v- points will have different offsets with symmetric memory.
+      Iu_off = (size(uo,1) - (grd%iec - grd%isc))/2 - grd%isc + 1
+      ju_off = (size(uo,2) - (grd%jec - grd%jsc))/2 - grd%jsc + 1
+      iv_off = (size(vo,1) - (grd%iec - grd%isc))/2 - grd%isc + 1
+      Jv_off = (size(vo,2) - (grd%jec - grd%jsc))/2 - grd%jsc + 1
+      do I=grd%isc-1,grd%iec ; do J=grd%jsc-1,grd%jec
+        ! Interpolate ocean and ice velocities from C-grid velocity points.
+        Iu = i + Iu_off ; ju = j + ju_off ; iv = i + iv_off ; Jv = j + Jv_off
+        ! This masking is needed for now to prevent icebergs from running up on to land.
+        mask = min(grd%msk(i,j), grd%msk(i+1,j), grd%msk(i,j+1), grd%msk(i+1,j+1))
+        grd%uo(I,J,:) =  0.5*(uo(Iu,ju,:)+uo(Iu,ju+1,:))
+        grd%vo(I,J,:) =  0.5*(vo(iv,Jv,:)+vo(iv+1,Jv,:))
+      enddo ; enddo
+    else
+      call error_mesg('MOM_particles_run', 'Unrecognized value of stagger!', FATAL)
+    endif
   endif
   do k=2,grd%ke
       grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
@@ -255,7 +279,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
   !Move to k-space if not already
   call particles_to_k_space(parts,ho)
 
-  if (parts%initial_traj) then 
+  if (parts%initial_traj) then
        call record_posn(parts, ho, tv%T)
        parts%initial_traj=.False.
   endif
@@ -287,7 +311,7 @@ end subroutine particles_run
 subroutine particles_to_k_space(parts,h)
    ! Arguments
    type(particles), pointer :: parts !< Container for all types and memory
-   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
    !Local variables
    type(particles_gridded), pointer :: grd
    type(particle), pointer :: part
@@ -295,7 +319,7 @@ subroutine particles_to_k_space(parts,h)
 
    integer :: stdlogunit, stderrunit
 
-   ! Get the stderr and stdlog unit numbers                                     
+   ! Get the stderr and stdlog unit numbers
    stderrunit=stderr()
 
 
@@ -306,6 +330,7 @@ subroutine particles_to_k_space(parts,h)
     part=>parts%list(grdi,grdj)%first
     do while (associated(part)) ! loop over all parts
     call find_layer(grd, part%depth, h, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
+    if(part%k_fixed>0) part%k = part%k_fixed !Fix the level if the particle is requested to have a fixed k
     part=>part%next
     enddo
    enddo ; enddo
@@ -317,9 +342,9 @@ end subroutine particles_to_k_space
 !> Checks whether all particles are in k-space and if not, moves them to k-space
 
 subroutine particles_to_z_space(parts,h)
-   ! Arguments                                                                 
+   ! Arguments
    type(particles), pointer :: parts !< Container for all types and memory
-   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers 
+   real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
    !Local variables
    type(particles_gridded), pointer :: grd
    type(particle), pointer :: part
@@ -331,12 +356,12 @@ subroutine particles_to_z_space(parts,h)
    ! Get the stderr and stdlog unit numbers
    stderrunit=stderr()
 
-   ! For convenience 
+   ! For convenience
    grd=>parts%grd
 
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
-    do while (associated(part)) ! loop over all parts 
+    do while (associated(part)) ! loop over all parts
     call find_depth(grd, part%k, h, part%depth, part%ine,part%jne, part%xi,part%yj, part%k_space)
     part=>part%next
     enddo
@@ -392,14 +417,15 @@ subroutine evolve_particles(parts)
         if (debug) call check_position(grd, part, 'evolve_particle (top)')
 !       Interpolate gridded velocity fields to part and generate uvel and vvel
         call interp_flds(grd,part%ine,part%jne,part%k,part%xi,part%yj,part%uvel, part%vvel, part%lon, part%lat)
-          !Time stepping schemes:       
-        !call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
-        if (xystagger) then
-           call Runge_Kutta_xystagger(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
-        else
-           call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
-        endif
-        
+        !Time stepping schemes:
+        call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        !Currentl xystagger=.false.
+        !if (xystagger) then
+        !   call Runge_Kutta_xystagger(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        !else
+        !   call Runge_Kutta_stepping(parts,part, uveln, vveln,lonn, latn, i, j, xi, yj)
+        !endif
+
         part%uvel=uveln
         part%vvel=vveln
 
@@ -494,7 +520,7 @@ subroutine Runge_Kutta_stepping(parts, part, uveln, vveln, lonn, latn, i, j, xi,
 
   !  X2 = X1+dt/2*V1 ; V2 = V1+dt/2*A1; A2=A(X2)
   call Runge_Kutta_step(parts, part, dt_2, x1, y1, x2, y2, xdot1, ydot1, xdot2, ydot2, lon1, lat1, lon2, lat2, u1,v1, i1, j1, i, j, xi, yj, u2, v2, reg_dldx, on_tangential_plane)
-  
+
   !  X3 = X1+dt/2*V2 ; V3 = V1+dt/2*A2; A3=A(X3)
   call Runge_Kutta_step(parts, part, dt_2, x1, y1, x3, y3, xdot2, ydot2, xdot3, ydot3, lon1, lat1, lon3, lat3, u2,v2, i1, j1, i, j, xi, yj, u3, v3, reg_dldx, on_tangential_plane)
 
@@ -651,10 +677,10 @@ subroutine Runge_Kutta_xystagger(parts, part, uveln, vveln, lonn, latn, i, j, xi
 
 
   lon1=part%lon; lat1=part%lat
-  if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1) 
+  if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
   call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
-  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1, lon1, lat1) 
-  if (on_tangential_plane) then 
+  call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1, lon1, lat1)
+  if (on_tangential_plane) then
     call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
     ydot1=0.0
   else
@@ -779,7 +805,7 @@ end subroutine Runge_xtheny_step
   if (on_tangential_plane) call rotpos_to_tang(lon1,lat1,x1,y1)
   call convert_from_meters_to_grid(lat1,parts%grd%grid_is_latlon,parts%grd%grid_is_regular,dxdl1,dydl,reg_dldx)
   call interp_flds(grd, i, j, part%k, xi, yj, uvel1, vvel1,lon1,lat1)
-  
+
   if (on_tangential_plane) then
     call rotvec_to_tang(lon1,uvel1,vvel1,xdot1,ydot1)
     xdot1=0.0
@@ -1301,11 +1327,10 @@ logical, optional, intent(in)    :: stamp !< If present and true, add time-stamp
 real, dimension(:,:,:),intent(in)      :: h !< Thickness of layers
 
 
-
   if (.not.associated(parts)) return
   call mpp_clock_begin(parts%clock_iow)
   call parts_chksum(parts, 'write_restart parts')
-  call write_restart(parts, h, directory, time,stamp)
+  call write_restart_parts(parts, h)
   call mpp_clock_end(parts%clock_iow)
 
 end subroutine particles_save_restart
@@ -1321,6 +1346,7 @@ real,dimension(:,:,:),optional,intent(in) :: temp, salt
 ! Local variables
 type(particle), pointer :: this, next
 
+
   if (.not.associated(parts)) return
 
   ! particles_save_restart() is called directly by SIS1 and SIS2 so
@@ -1333,7 +1359,6 @@ type(particle), pointer :: this, next
   !  call particles_save_restart(parts,h)
   !endif
 
-  call mpp_clock_begin(parts%clock_ini)
   ! Delete parts and structures
   call move_all_trajectories(parts, delete_parts=.true.)
 
@@ -1343,15 +1368,17 @@ type(particle), pointer :: this, next
   deallocate(parts%grd%lat)
   deallocate(parts%grd%lonc)
   deallocate(parts%grd%latc)
-  !deallocate(parts%grd%dx)
-  !deallocate(parts%grd%dy)
-  !deallocate(parts%grd%area)
+  deallocate(parts%grd%dx)
+  deallocate(parts%grd%dy)
+  deallocate(parts%grd%area)
   deallocate(parts%grd%msk)
   deallocate(parts%grd%cos)
   deallocate(parts%grd%sin)
   deallocate(parts%grd%ocean_depth)
-! ! deallocate(parts%grd%domain)
-! ! deallocate(parts%grd)
+  deallocate(parts%grd%uo,parts%grd%vo)
+  deallocate(parts%grd%tmp)
+  deallocate(parts%grd%particle_counter_grd)
+
   call dealloc_buffer(parts%obuffer_n)
   call dealloc_buffer(parts%obuffer_s)
   call dealloc_buffer(parts%obuffer_e)
@@ -1362,8 +1389,8 @@ type(particle), pointer :: this, next
   call dealloc_buffer(parts%ibuffer_w)
   call dealloc_buffer(parts%ibuffer_io)
   call dealloc_buffer(parts%obuffer_io)
-  call mpp_clock_end(parts%clock_ini)
-  !deallocate(parts)
+
+!  deallocate(parts)  !cause crash
 
   if (mpp_pe()==mpp_root_pe()) write(*,'(a,i8)') 'drifters: particles_end complete',mpp_pe()
 
