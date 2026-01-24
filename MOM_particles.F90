@@ -27,7 +27,7 @@ use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, 
 use MOM_particles_framework, only: verbose, really_debug,debug,use_roundoff_fix
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell
 use MOM_particles_framework, only: bilin,yearday,count_parts,parts_chksum
-use MOM_particles_framework, only: linlinx,linliny
+use MOM_particles_framework, only: find_u, find_v
 use MOM_particles_framework, only: checksum_gridded,add_new_part_to_list
 use MOM_particles_framework, only: send_parts_to_other_pes,move_trajectory,move_all_trajectories
 use MOM_particles_framework, only: record_posn,check_position,print_part,print_parts,print_fld
@@ -109,9 +109,11 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
  real :: hxm, hxp
  integer :: kint
  real  ::  xiu,yjv
+ real :: dx_dlon, dy_dlat
  integer  ::  iu, jv
  kint = ceiling(k)
 
+ call convert_from_grid_to_meters(y, grd%grid_is_latlon,grd%grid_is_regular, dx_dlon, dy_dlat)
 
  cos_rot=bilin(grd, grd%cos, i, j, xi, yj) ! If true, uses the inverted bilin function
  sin_rot=bilin(grd, grd%sin, i, j, xi, yj)
@@ -124,7 +126,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
     jv=j
  endif
  !uo=linlinx(grd, grd%uo(:,:,kint), i+1, j, xi,yj)
- uo=linlinx(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i+1, j, xi, yj)
+ uo=find_u(grd, grd%uo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i+1, j, xi, yj, dx_dlon, dy_dlat)
  xiu = xi+0.5
  if (xiu>1) then
      xiu= xiu-1.
@@ -132,7 +134,7 @@ subroutine interp_flds(grd, i, j, k, xi, yj, uo, vo, x ,y)
  else
     iu=i
  endif
- vo=linliny(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i, j+1, xi, yj)
+ vo=find_v(grd, grd%vo(grd%isd:grd%ied+1,grd%jsd:grd%jed+1,kint), x, y, i, j+1, xi, yj, dx_dlon, dy_dlat)
  !vo=linliny(grd, grd%vo(:,:,kint), i, j+1, xi, yj)
  ! Rotate vectors from local grid to lat/lon coordinates
  call rotate(uo, vo, cos_rot, sin_rot)
@@ -247,7 +249,6 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
   if (debug) call checksum_gridded(parts%grd, 'top of s/r run')
 
   !Move to k-space if not already
-
   call particles_to_k_space(parts,ho)
 
   if (parts%initial_traj) then 
@@ -299,7 +300,7 @@ subroutine particles_to_k_space(parts,h)
 
    do grdj = grd%jsc,grd%jec ; do grdi = grd%isc,grd%iec
     part=>parts%list(grdi,grdj)%first
-    do while (associated(part)) ! loop over all parts 
+    do while (associated(part)) ! loop over all parts
     call find_layer(grd, part%depth, h, part%k, part%ine,part%jne, part%xi,part%yj, part%k_space)
     part=>part%next
     enddo
