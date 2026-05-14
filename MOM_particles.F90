@@ -252,7 +252,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
   call particles_to_k_space(parts,ho)
 
   if (parts%initial_traj) then 
-       call record_posn(parts, ho, tv%T)
+       call record_posn(parts, ho, tv%T, tv%S)
        parts%initial_traj=.False.
   endif
 
@@ -267,7 +267,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
 
   ! For each part, record
   ! sample_traj = .true.
-  if (sample_traj) call record_posn(parts, ho, tv%T)
+  if (sample_traj) call record_posn(parts, ho, tv%T,tv%S)
   if (write_traj) then
     call move_all_trajectories(parts)
     call write_trajectory(parts%trajectories, parts%save_short_traj)
