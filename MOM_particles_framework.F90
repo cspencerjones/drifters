@@ -112,6 +112,7 @@ type :: particles_gridded
   logical :: grid_is_latlon !< Flag to say whether the coordinate is in lat-lon degrees, or meters
   logical :: grid_is_regular !< Flag to say whether point in cell can be found assuming regular Cartesian grid
   logical :: no_TS
+  logical :: TS_interp
   real :: Lx !< Length of the domain in x direction
   real, dimension(:,:), allocatable :: lon !< Longitude of cell corners (degree E)
   real, dimension(:,:), allocatable :: lat !< Latitude of cell corners (degree N)
@@ -270,6 +271,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   logical :: grid_is_regular=.False. ! Flag to say whether point in cell can be found assuming regular Cartesian grid
   logical :: ignore_missing_restart_parts=.False. ! True Allows the model to ignore particles missing in the restart.
   logical :: no_TS=.False.
+  logical :: TS_interp=.True.
   logical :: halo_debugging=.False. ! Use for debugging halos (remove when its working)
   logical :: save_short_traj=.false. ! True saves only lon,lat,time,id in particle_trajectory.nc
   logical :: ignore_traj=.False. ! If true, then model does not traj trajectory data at all
@@ -290,7 +292,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          parallel_reprod, use_slow_find, ignore_ij_restart, use_new_predictive_corrective, halo_debugging, &
          fix_restart_dates, use_roundoff_fix, Runge_not_Verlet, &
          restart_input_dir, old_bug_bilin,do_unit_tests, force_all_pes_traj, &
-         grid_is_latlon,Lx, no_TS, &
+         grid_is_latlon,Lx, no_TS, TS_interp, &
          grid_is_regular, &
          generate_days, generate_lons, generate_lats, generate_d, &
          ignore_traj, initial_traj, debug_particle_with_id, read_old_restarts
@@ -509,6 +511,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   parts%grd%halo=halo
   parts%grd%Lx=Lx
   parts%grd%no_TS=no_TS
+  parts%grd%TS_interp=TS_interp
   parts%grd%grid_is_latlon=grid_is_latlon
   parts%grd%grid_is_regular=grid_is_regular
   parts%Runge_not_Verlet=Runge_not_Verlet
@@ -2283,9 +2286,12 @@ integer :: stderrunit
       if (grd%no_TS) then
          posn%theta = -999.0 
          posn%salt = -999.0
-      else 
+      elseif (grd%TS_interp) then
           posn%theta = bilin(grd,thetao(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj)
           posn%salt = bilin(grd,salto(:,:,floor(this%k)+1), this%ine, this%jne, this%xi, this%yj)
+      else
+          posn%theta = thetao(this%ine, this%jne,floor(this%k)+1)
+          posn%salt = salto(this%ine, this%jne,floor(this%k)+1)
       endif
 
 !      write(stderrunit,'(a,i3,a,i4,3f12.4)') &
