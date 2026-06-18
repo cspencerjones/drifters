@@ -62,6 +62,7 @@ public particles_gridded, xyt, particle, particles, buffer!, bond
 
 !Public subs
 public particles_framework_init
+public generate_if_time
 public send_parts_to_other_pes
 public update_halo_particles
 public pack_traj_into_buffer2, unpack_traj_from_buffer2
@@ -219,6 +220,12 @@ type :: particles !; private
   logical :: use_new_predictive_corrective =.False. !< Flag to use Bob's predictive corrective particle scheme- Added by Alon
   integer(kind=8) :: debug_particle_with_id = -1 !< If positive, monitors a part with this id
   integer :: nstep=1 !< Number of timestepped (used for staggering particle motion in x and y
+  real :: generate_lons(3) ! Start,end and delta longitude, if generating particles
+  real :: generate_lats(3) ! Start,end and delta longitude, if generating particles
+  real :: generate_d(3)
+  integer :: generate_days=-1 ! If positive, is the period in days between generation of new particles on a grid. If 0, generate once. Negative do nothing.
+  logical :: generate_monthly !< If true, generate a new grid of particles every month
+  integer :: mon_counter !<counts up the months so particles are seeded every month (only used when generate_monthly is true)
   type(buffer), pointer :: obuffer_n=>null() !< Buffer for outgoing parts to the north
   type(buffer), pointer :: ibuffer_n=>null() !< Buffer for incoming parts from the north
   type(buffer), pointer :: obuffer_s=>null() !< Buffer for outgoing parts to the south
@@ -264,6 +271,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   integer :: traj_sample_hrs=24 ! Period between sampling of position for trajectory storage
   integer :: traj_write_hrs=24 ! Period between writing sampled trajectories to disk
   integer :: verbose_hrs=24 ! Period between verbose messages
+  integer :: mon_counter=0 !Counter that counts up as particles are generated each month
   real :: Lx=360. ! Length of domain in x direction, used for periodicity (use a huge number for non-periodic)
   logical :: Runge_not_Verlet=.True. ! True=Runge Kutta, False=Verlet.
   logical :: xystagger=.True. !If true then stagger timestepping, with particle first advected in the xy direction and then in the y direction
@@ -282,6 +290,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   logical :: read_old_restarts=.false. ! Legacy option that does nothing
   integer(kind=8) :: debug_particle_with_id = -1 ! If positive, monitors a part with this id
   integer :: generate_days=-1 ! If positive, is the period in days between generation of new particles on a grid. If 0, generate once. Negative do nothing.
+  logical :: generate_monthly=.false.
   real :: generate_lons(3) ! Start,end and delta longitude, if generating particles
   real :: generate_lats(3) ! Start,end and delta longitude, if generating particles
   real :: generate_d(3) ! Start, end and delta depth if positive. Start end and delta k if negative
@@ -294,7 +303,8 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
          restart_input_dir, old_bug_bilin,do_unit_tests, force_all_pes_traj, &
          grid_is_latlon,Lx, no_TS, TS_interp, &
          grid_is_regular, &
-         generate_days, generate_lons, generate_lats, generate_d, &
+         generate_days, generate_monthly, mon_counter, &
+         generate_lons, generate_lats, generate_d, &
          ignore_traj, initial_traj, debug_particle_with_id, read_old_restarts
 
   ! Local variables
@@ -515,6 +525,12 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   parts%grd%grid_is_latlon=grid_is_latlon
   parts%grd%grid_is_regular=grid_is_regular
   parts%Runge_not_Verlet=Runge_not_Verlet
+  parts%generate_lons=generate_lons
+  parts%generate_lats=generate_lats
+  parts%generate_d=generate_d
+  parts%generate_days=generate_days
+  parts%generate_monthly=generate_monthly
+  parts%mon_counter=mon_counter
   parts%ignore_missing_restart_parts=ignore_missing_restart_parts
   parts%use_new_predictive_corrective=use_new_predictive_corrective  !Alon
   parts%debug_particle_with_id=debug_particle_with_id
@@ -524,28 +540,45 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   if (do_unit_tests) then
    if (unit_tests(parts)) call error_mesg('particles, particles_init', 'Unit tests failed!', FATAL)
   endif
-
-  ! Generate a grid of particles if requested
-  call get_date(Time, iyr, imon, iday, ihr, imin, isec)
-  if (3600*ihr + 60*imin +isec == 0) then ! Make sure we are on a day boundary
-    lgenerate = .false.
-    if (generate_days>0) then
-      if ( mod(365*(iyr-1)+iday-1, generate_days)==0 ) lgenerate = .true.
-    elseif (generate_days==0) then ! .and. 365*(iyr-1)+iday-1==0) then
-      lgenerate = .true.
-    endif
-    if (lgenerate) then 
-       call generate_grid_of_particles(parts, &
-                          generate_lons(1), generate_lons(2), generate_lons(3), &
-                          generate_lats(1), generate_lats(2), generate_lats(3), &
-                          generate_d(1), generate_d(2), generate_d(3))
-    endif
-  endif
-
+  call generate_if_time(parts, Time)
   call mpp_clock_end(parts%clock_ini)
   call mpp_clock_end(parts%clock)
 
 end subroutine particles_framework_init
+
+subroutine generate_if_time(parts, Time)
+  !Arguments
+  type(particles), pointer :: parts !< Particles to be allocated
+  type(time_type), intent(in) :: Time !< Model time
+  !Local variables
+  integer :: iyr, imon, iday, ihr, imin, isec
+  logical :: lerr, lgenerate
+  ! Generate a grid of particles if requested
+  call get_date(Time, iyr, imon, iday, ihr, imin, isec)
+  if (3600*ihr + 60*imin +isec == 0) then ! Make sure we are on a day boundary
+    lgenerate = .false.
+    if (parts%generate_monthly)then
+      !write(stderrunit,*) 'Lat not defined properly', imon, mon_counter
+      if (imon==parts%mon_counter)then
+              lgenerate=.true.
+              parts%mon_counter=parts%mon_counter+1
+       endif
+    elseif (parts%generate_days>0) then
+      if ( mod(365*(iyr-1)+iday-1, parts%generate_days)==0 ) lgenerate = .true.
+    elseif (parts%generate_days==0) then ! .and. 365*(iyr-1)+iday-1==0) then
+      lgenerate = .true.
+    endif
+    if (lgenerate) then
+       call generate_grid_of_particles(parts, &
+                          parts%generate_lons(1), parts%generate_lons(2), parts%generate_lons(3), &
+                          parts%generate_lats(1), parts%generate_lats(2), parts%generate_lats(3), &
+                          parts%generate_d(1), parts%generate_d(2), parts%generate_d(3))
+    endif
+  endif
+
+end subroutine generate_if_time
+
+
 
 !> Generate particles on a grid
 subroutine generate_grid_of_particles(parts, lon_start, lon_end, dlon, lat_start, lat_end, dlat,d_start,d_end,dd)

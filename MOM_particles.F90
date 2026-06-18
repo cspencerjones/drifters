@@ -22,7 +22,7 @@ use mpp_domains_mod, only: mpp_get_neighbor_pe, NORTH, SOUTH, EAST, WEST
 
 use diag_manager_mod, only: send_data
 
-use MOM_particles_framework, only: particles_framework_init
+use MOM_particles_framework, only: particles_framework_init, generate_if_time
 use MOM_particles_framework, only: particles_gridded, xyt, particle, particles, buffer
 use MOM_particles_framework, only: verbose, really_debug,debug,use_roundoff_fix
 use MOM_particles_framework, only: find_cell,find_cell_by_search,count_parts,is_point_in_cell,pos_within_cell
@@ -197,6 +197,7 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
 !  grd%u_particle(:,:)=0.
 !  grd%v_particle(:,:)=0.
 
+  call generate_if_time(parts, time)
   !Initializing _on_ocean_fields
 !  grd%Uvel_on_ocean(:,:,:)=0. ;   grd%Vvel_on_ocean(:,:,:)=0.
 
