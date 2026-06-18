@@ -226,6 +226,7 @@ type :: particles !; private
   integer :: generate_days=-1 ! If positive, is the period in days between generation of new particles on a grid. If 0, generate once. Negative do nothing.
   logical :: generate_monthly !< If true, generate a new grid of particles every month
   integer :: mon_counter !<counts up the months so particles are seeded every month (only used when generate_monthly is true)
+  integer :: num !< Drifter number of first drifter (counts up from one)
   type(buffer), pointer :: obuffer_n=>null() !< Buffer for outgoing parts to the north
   type(buffer), pointer :: ibuffer_n=>null() !< Buffer for incoming parts from the north
   type(buffer), pointer :: obuffer_s=>null() !< Buffer for outgoing parts to the south
@@ -272,6 +273,7 @@ subroutine particles_framework_init(parts, Grid, Time, dt)
   integer :: traj_write_hrs=24 ! Period between writing sampled trajectories to disk
   integer :: verbose_hrs=24 ! Period between verbose messages
   integer :: mon_counter=0 !Counter that counts up as particles are generated each month
+  integer :: num=0 !Drifter number of first drifter minus one (counts up)
   real :: Lx=360. ! Length of domain in x direction, used for periodicity (use a huge number for non-periodic)
   logical :: Runge_not_Verlet=.True. ! True=Runge Kutta, False=Verlet.
   logical :: xystagger=.True. !If true then stagger timestepping, with particle first advected in the xy direction and then in the y direction
@@ -621,7 +623,7 @@ integer :: stderrunit
   !CSJ hard-coded this for now
   !localpart%k_space=.true.
   !localpart%k=0.5
-  num = 0
+  !num = 0
   do d = 0,de
      if (d_end<0) then
         localpart%k_space=.true.
@@ -636,10 +638,10 @@ integer :: stderrunit
          do i = 0,ie
            localpart%lon = lon_start + dlon*float(i)
            lres=find_cell(grd, localpart%lon, localpart%lat, localpart%ine, localpart%jne)
-           num=num+1
+           parts%num=parts%num+1
            if (lres) then
              if (grd%msk(localpart%ine,localpart%jne)>-1.) then
-               localpart%drifter_num = num
+               localpart%drifter_num = parts%num
                localpart%id = generate_id(grd, localpart%ine, localpart%jne)
                lres=pos_within_cell(grd, localpart%lon, localpart%lat,localpart%ine,localpart%jne, localpart%xi, localpart%yj)
                call add_new_part_to_list(parts%list(localpart%ine,localpart%jne)%first, localpart)
