@@ -241,6 +241,8 @@ subroutine particles_run(parts, time, uo, vo, ho, tv, dt_adv, use_uh)
       grd%vo(:,:,k) = vo(:,:,k)*grd%dx(:,:)
     enddo
   endif
+    grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,1) = &
+      ho(grd%isd:grd%ied,grd%jsd:grd%jed,1)
   do k=2,grd%ke
       grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k) = grd%hdepth(grd%isd:grd%ied,grd%jsd:grd%jed,k-1)+ho(grd%isd:grd%ied,grd%jsd:grd%jed,k)
   enddo
